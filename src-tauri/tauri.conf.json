@@ -1,0 +1,18 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "identifier": "app.cursor.videocopilot",
+  "productName": "video-copilot",
+  "version": "0.0.0",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:3000",
+    "frontendDist": "../build"
+  },
+  "app": {
+    "windows": [
+      { "title": "Gebo", "width": 1280, "height": 800, "resizable": true }
+    ],
+    "security": { "csp": null }
+  }
+}
