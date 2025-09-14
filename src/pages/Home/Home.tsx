@@ -71,11 +71,9 @@ export default function Home() {
   };
 
   const handleLoadingComplete = async () => {
-    console.log('Loading complete, opening editor window...');
     try {
       // Open new fullscreen editor window
       await openEditorWindow();
-      console.log('Editor window opened successfully');
     } catch (error) {
       console.error('Failed to open editor window:', error);
     }

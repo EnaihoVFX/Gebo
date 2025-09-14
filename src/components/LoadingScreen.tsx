@@ -22,7 +22,6 @@ export default function LoadingScreen({ onComplete, projectTitle }: LoadingScree
       
       if (currentProgress >= 100) {
         clearInterval(timer);
-        console.log('Loading screen progress complete, calling onComplete...');
         setTimeout(() => {
           onComplete();
         }, 200);

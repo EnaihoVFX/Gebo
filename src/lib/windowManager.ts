@@ -69,11 +69,9 @@ export async function returnToHomeSize(): Promise<void> {
 
 export async function openEditorWindow(): Promise<void> {
   try {
-    console.log('Attempting to create editor window...');
     await invoke('create_editor_window');
-    console.log('Editor window created successfully');
   } catch (error) {
     console.error('Failed to create editor window:', error);
-    throw error; // Re-throw to let the caller handle it
+    throw error;
   }
 }

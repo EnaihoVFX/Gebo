@@ -127,8 +127,6 @@ async fn set_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), S
 
 #[tauri::command]
 async fn create_editor_window(app: tauri::AppHandle) -> Result<(), String> {
-  println!("Creating editor window...");
-  
   let _editor_window = tauri::WebviewWindowBuilder::new(
     &app,
     "editor",
@@ -137,12 +135,8 @@ async fn create_editor_window(app: tauri::AppHandle) -> Result<(), String> {
   .title("Video Editor")
   .fullscreen(true)
   .build()
-  .map_err(|e| {
-    println!("Failed to create editor window: {}", e);
-    e.to_string()
-  })?;
+  .map_err(|e| e.to_string())?;
   
-  println!("Editor window created successfully");
   Ok(())
 }
 
