@@ -35,3 +35,23 @@ export type VideoTimelineProps = {
   height?: number;
   onSeek?: (t: number) => void;
 };
+
+export type ChatMessage = {
+  id: string;
+  type: "user" | "assistant";
+  content: string;
+  timestamp: Date;
+  hasVideoPreview?: boolean;
+  videoPreview?: {
+    src: string;
+    cuts: Range[];
+    label: string;
+  };
+  actions?: ChatAction[];
+};
+
+export type ChatAction = {
+  type: "accept" | "reject" | "custom";
+  label: string;
+  onClick: () => void;
+};

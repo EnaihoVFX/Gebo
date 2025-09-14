@@ -1,27 +1,18 @@
-import { useState } from "react";
-
 interface CommandDialogProps {
   isOpen: boolean;
+  commandInput: string;
+  onCommandInputChange: (value: string) => void;
+  onExecute: () => void;
   onClose: () => void;
-  onExecute: (command: string) => void;
 }
 
-function CommandDialog({ isOpen, onClose, onExecute }: CommandDialogProps) {
-  const [commandInput, setCommandInput] = useState("");
-
-  const handleExecute = () => {
-    onExecute(commandInput);
-    setCommandInput("");
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleExecute();
-    } else if (e.key === 'Escape') {
-      onClose();
-    }
-  };
-
+export function CommandDialog({
+  isOpen,
+  commandInput,
+  onCommandInputChange,
+  onExecute,
+  onClose,
+}: CommandDialogProps) {
   if (!isOpen) return null;
 
   return (
@@ -34,14 +25,17 @@ function CommandDialog({ isOpen, onClose, onExecute }: CommandDialogProps) {
         <input
           type="text"
           value={commandInput}
-          onChange={(e) => setCommandInput(e.target.value)}
-          onKeyDown={handleKeyDown}
+          onChange={(e) => onCommandInputChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onExecute();
+            if (e.key === 'Escape') onClose();
+          }}
           className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded text-zinc-100 focus:outline-none focus:border-cyan-500"
           placeholder="tighten silence > 2 leave 150ms"
           autoFocus
         />
         <div className="flex gap-2 mt-4">
-          <button onClick={handleExecute} className="px-4 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-700">Execute</button>
+          <button onClick={onExecute} className="px-4 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-700">Execute</button>
           <button onClick={onClose} className="px-4 py-2 bg-zinc-700 text-zinc-200 rounded hover:bg-zinc-600">Cancel</button>
         </div>
       </div>
@@ -49,4 +43,6 @@ function CommandDialog({ isOpen, onClose, onExecute }: CommandDialogProps) {
   );
 }
 
-export default CommandDialog;
+
+
+

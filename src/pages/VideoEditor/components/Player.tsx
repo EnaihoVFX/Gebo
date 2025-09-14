@@ -1,22 +1,7 @@
-import { useEffect, useRef, forwardRef, useImperativeHandle } from "react";
-import type { Range } from "../utils/videoUtils";
+import { forwardRef, useImperativeHandle, useRef, useEffect } from "react";
+import type { PlayerHandle, PlayerProps, Range } from "../../../types";
 
-export type PlayerHandle = {
-  play: () => void;
-  pause: () => void;
-  seek: (t: number) => void;
-  isPlaying: () => boolean;
-  currentTime: () => number;
-};
-
-interface PlayerProps {
-  src: string;
-  label: string;
-  cuts: Range[];
-  large?: boolean;
-}
-
-const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
+export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   { src, label, cuts, large = false },
   ref
 ) {
@@ -48,15 +33,24 @@ const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   }), []);
 
   return (
-    <div className={`rounded border border-zinc-800 ${large ? "p-3" : "p-2"}`}>
+    <div className={`rounded border border-zinc-800 ${large ? "p-3" : "p-2"} ${large ? "max-w-[900px]" : "max-w-[450px]"}`}>
       <div className="text-xs mb-2 text-zinc-400">{label}</div>
+      <div className="text-xs mb-1 text-zinc-500 truncate">Source: {src}</div>
       <video
         key={`${src}|${cuts.length}|${JSON.stringify(cuts)}`}
         ref={videoRef}
         src={src}
         controls
         playsInline
-        className={`rounded w-full ${large ? "max-h-[60vh]" : "max-h-[36vh]"} object-contain bg-black`}
+        preload="metadata"
+        disablePictureInPicture
+        className={`rounded w-full ${large ? "max-h-[25vh] max-w-[800px]" : "max-h-[15vh] max-w-[400px]"} object-contain bg-black video-no-overlay`}
+        style={{
+          minHeight: large ? "120px" : "80px",
+          maxHeight: large ? "300px" : "180px",
+          maxWidth: large ? "800px" : "400px",
+          border: "1px solid #444"
+        }}
         onLoadStart={() => {
           console.log(`Video load started: ${src}`);
         }}
@@ -64,13 +58,25 @@ const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
           console.log(`Video data loaded: ${src}`);
         }}
         onError={(e) => {
+          const error = e.currentTarget.error;
           console.error(`Video error: ${src}`, e);
-          console.error(`Video error details: ${e.currentTarget.error?.message || 'Unknown error'}`);
+          console.error(`Video error details:`, error);
+          if (error) {
+            console.error(`Video Error: ${error.message || 'Unknown error'} (Code: ${error.code})`);
+            console.error(`Error details: ${JSON.stringify({
+              code: error.code,
+              message: error.message,
+              networkState: e.currentTarget.networkState,
+              readyState: e.currentTarget.readyState
+            })}`);
+          }
         }}
         onCanPlay={() => {
           console.log(`Video can play: ${src}`);
         }}
-      />
+      >
+        <p>Your browser does not support the video tag.</p>
+      </video>
     </div>
   );
 });
@@ -90,5 +96,3 @@ function useSkipPlayback(videoRef: React.RefObject<HTMLVideoElement | null>, cut
     return () => el.removeEventListener("timeupdate", onTime);
   }, [videoRef, cuts]);
 }
-
-export default Player;
