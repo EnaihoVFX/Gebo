@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
+// import { save } from "@tauri-apps/plugin-dialog"; // Removed unused import
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { exportCutlist, makePreviewProxy, readFileAsBase64, copyToAppData } from "./lib/ffmpeg";
 import type { Range, PlayerHandle } from "./types";
@@ -10,6 +10,8 @@ import { CommandDialog } from "./components/CommandDialog";
 import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { PrecisionControls } from "./components/PrecisionControls";
+import { ExportDialog } from "./components/ExportDialog";
 import { useFileHandling } from "./hooks/useFileHandling";
 import { useWaveformLogic } from "./hooks/useWaveformLogic";
 import { useCommandLogic } from "./hooks/useCommandLogic";
@@ -18,6 +20,14 @@ export default function App() {
   // Edits
   const [previewCuts, setPreviewCuts] = useState<Range[]>([]);
   const [acceptedCuts, setAcceptedCuts] = useState<Range[]>([]);
+  
+  // Undo/Redo system
+  const [editHistory, setEditHistory] = useState<Range[][]>([[]]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const [inOutPoints, setInOutPoints] = useState<{ in: number | null; out: number | null }>({ in: null, out: null });
+  
+  // Export dialog
+  const [showExportDialog, setShowExportDialog] = useState(false);
   
   // Timeline view mode
   const [useAdvancedTimeline, setUseAdvancedTimeline] = useState(true);
@@ -73,7 +83,7 @@ export default function App() {
         const activeElement = document.activeElement;
         const isActiveInput = activeElement instanceof HTMLInputElement || 
                             activeElement instanceof HTMLTextAreaElement ||
-                            activeElement?.contentEditable === 'true';
+                            (activeElement as HTMLElement)?.contentEditable === 'true';
         
         if (!isInputField && !isActiveInput) {
           // space toggles play/pause when not in input fields
@@ -132,21 +142,104 @@ export default function App() {
   };
 
   const acceptPlan = () => {
-    setAcceptedCuts(mergeRanges([...acceptedCuts, ...previewCuts]));
+    const newAcceptedCuts = mergeRanges([...acceptedCuts, ...previewCuts]);
+    setAcceptedCuts(newAcceptedCuts);
     setPreviewCuts([]);
-    log(`Accepted. Total accepted cuts: ${acceptedCuts.length + previewCuts.length}`);
+    saveToHistory(newAcceptedCuts);
+    log(`Accepted. Total accepted cuts: ${newAcceptedCuts.length}`);
   };
   const rejectPlan = () => { setPreviewCuts([]); };
+
+  // Undo/Redo system
+  const saveToHistory = (newCuts: Range[]) => {
+    const newHistory = editHistory.slice(0, historyIndex + 1);
+    newHistory.push([...newCuts]);
+    setEditHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+  };
+
+  const undo = () => {
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1;
+      setHistoryIndex(newIndex);
+      setAcceptedCuts([...editHistory[newIndex]]);
+      log(`Undo: Restored ${editHistory[newIndex].length} cuts`);
+    }
+  };
+
+  const redo = () => {
+    if (historyIndex < editHistory.length - 1) {
+      const newIndex = historyIndex + 1;
+      setHistoryIndex(newIndex);
+      setAcceptedCuts([...editHistory[newIndex]]);
+      log(`Redo: Restored ${editHistory[newIndex].length} cuts`);
+    }
+  };
+
+  // Manual cut management
+  const handleAddCut = (range: Range) => {
+    setPreviewCuts([...previewCuts, range]);
+    log(`Manual cut added: ${range.start.toFixed(2)}s - ${range.end.toFixed(2)}s`);
+  };
+
+  const handleRemoveCut = (index: number) => {
+    if (index >= 0 && index < acceptedCuts.length) {
+      const removedCut = acceptedCuts[index];
+      const newAcceptedCuts = acceptedCuts.filter((_, i) => i !== index);
+      setAcceptedCuts(newAcceptedCuts);
+      saveToHistory(newAcceptedCuts);
+      log(`Removed cut ${index + 1}: ${removedCut.start.toFixed(2)}s - ${removedCut.end.toFixed(2)}s`);
+    }
+  };
+
+  const clearAllCuts = () => {
+    if (acceptedCuts.length > 0) {
+      setAcceptedCuts([]);
+      setPreviewCuts([]);
+      saveToHistory([]);
+      log("Cleared all cuts");
+    }
+  };
+
+  // Mark In/Out functionality
+  const markIn = () => {
+    const currentTime = editedRef.current?.currentTime() || 0;
+    setInOutPoints(prev => ({ ...prev, in: currentTime }));
+    log(`Mark In: ${currentTime.toFixed(2)}s`);
+  };
+
+  const markOut = () => {
+    const currentTime = editedRef.current?.currentTime() || 0;
+    setInOutPoints(prev => ({ ...prev, out: currentTime }));
+    log(`Mark Out: ${currentTime.toFixed(2)}s`);
+    
+    // If both in and out are set, create a cut
+    if (inOutPoints.in !== null && currentTime > inOutPoints.in) {
+      const range = { start: inOutPoints.in, end: currentTime };
+      handleAddCut(range);
+    }
+  };
 
   // ---------- Export ----------
   const onExport = async () => {
     if (!filePath || !probe) return;
-    if (!acceptedCuts.length) { alert("No accepted cuts yet."); return; }
-    const savePath = await save({ defaultPath: "edited.mp4", filters: [{ name: "MP4", extensions: ["mp4"] }] });
-    if (!savePath) return;
-    await exportCutlist(filePath, savePath as string, acceptedCuts);
-    alert("Export complete: " + savePath);
-    log("Exported to " + savePath);
+    if (!acceptedCuts.length) { 
+      alert("No accepted cuts yet."); 
+      return; 
+    }
+    setShowExportDialog(true);
+  };
+
+  const handleExportWithOptions = async (savePath: string, options: any) => {
+    try {
+      // For now, use the basic exportCutlist function
+      // In a real implementation, you would modify FFmpeg parameters based on options
+      await exportCutlist(filePath, savePath, acceptedCuts);
+      log(`Exported to ${savePath} with options: ${JSON.stringify(options)}`);
+    } catch (error) {
+      console.error('Export failed:', error);
+      throw error;
+    }
   };
 
   // ---------- Playback controls ----------
@@ -157,6 +250,106 @@ export default function App() {
     else playVideo();
   };
   const seekVideo = (t: number) => { editedRef.current?.seek(t); };
+
+  // Frame-by-frame navigation
+  const frameStep = (direction: 'forward' | 'backward') => {
+    const currentTime = editedRef.current?.currentTime() || 0;
+    const frameRate = probe?.fps || 30;
+    const frameDuration = 1 / frameRate;
+    const newTime = direction === 'forward' 
+      ? currentTime + frameDuration 
+      : Math.max(0, currentTime - frameDuration);
+    seekVideo(newTime);
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't handle shortcuts when typing in input fields
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      const isCtrl = e.ctrlKey || e.metaKey;
+      const currentTime = editedRef.current?.currentTime() || 0;
+
+      switch (e.key.toLowerCase()) {
+        case ' ':
+          e.preventDefault();
+          togglePlay();
+          break;
+        case 'i':
+          e.preventDefault();
+          markIn();
+          break;
+        case 'o':
+          e.preventDefault();
+          markOut();
+          break;
+        case 'z':
+          if (isCtrl) {
+            e.preventDefault();
+            if (e.shiftKey) {
+              redo();
+            } else {
+              undo();
+            }
+          }
+          break;
+        case 'y':
+          if (isCtrl) {
+            e.preventDefault();
+            redo();
+          }
+          break;
+        case 'arrowleft':
+          e.preventDefault();
+          if (e.shiftKey) {
+            seekVideo(Math.max(0, currentTime - 10)); // 10 second jump
+          } else {
+            seekVideo(Math.max(0, currentTime - 1)); // 1 second jump
+          }
+          break;
+        case 'arrowright':
+          e.preventDefault();
+          if (e.shiftKey) {
+            seekVideo(currentTime + 10); // 10 second jump
+          } else {
+            seekVideo(currentTime + 1); // 1 second jump
+          }
+          break;
+        case ',':
+          e.preventDefault();
+          frameStep('backward');
+          break;
+        case '.':
+          e.preventDefault();
+          frameStep('forward');
+          break;
+        case 'home':
+          e.preventDefault();
+          seekVideo(0);
+          break;
+        case 'end':
+          e.preventDefault();
+          seekVideo(probe?.duration || 0);
+          break;
+        case 'enter':
+          if (e.shiftKey) {
+            e.preventDefault();
+            acceptPlan();
+          }
+          break;
+        case 'escape':
+          e.preventDefault();
+          rejectPlan();
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [probe, undo, redo, markIn, markOut, togglePlay, acceptPlan, rejectPlan]);
 
   const duration = probe?.duration || 0;
 
@@ -321,6 +514,11 @@ export default function App() {
           onTogglePlay={togglePlay}
           onSeekBack={() => seekVideo(Math.max(0, (editedRef.current?.currentTime() || 0) - 1))}
           onSeekForward={() => seekVideo((editedRef.current?.currentTime() || 0) + 1)}
+          onClearAllCuts={clearAllCuts}
+          onUndo={undo}
+          onRedo={redo}
+          onMarkIn={markIn}
+          onMarkOut={markOut}
           filePath={filePath}
           probe={probe}
           previewCuts={previewCuts}
@@ -385,6 +583,17 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Precision Controls */}
+              <div className="flex-shrink-0 p-3 border-t border-zinc-800">
+                <PrecisionControls
+                  currentTime={editedRef.current?.currentTime() || 0}
+                  duration={duration}
+                  onSeek={seekVideo}
+                  onFrameStep={frameStep}
+                  frameRate={probe?.fps || 30}
+                />
+              </div>
+
               {/* Timeline at Bottom */}
               <div className="flex-shrink-0 border-t border-zinc-800 p-3 min-h-0">
                 <div className="space-y-1">
@@ -409,6 +618,8 @@ export default function App() {
                         preview={previewCuts}
                         filePath={filePath}
                         onSeek={seekVideo}
+                        onAddCut={handleAddCut}
+                        onRemoveCut={handleRemoveCut}
                       />
                     ) : (
                       <VideoTimeline
@@ -456,8 +667,16 @@ export default function App() {
         isOpen={showCommandDialog}
         commandInput={commandInput}
         onCommandInputChange={setCommandInput}
-        onExecute={handleExecuteCommand}
+        onExecute={() => handleExecuteCommand(commandInput)}
         onClose={() => setShowCommandDialog(false)}
+      />
+      
+      <ExportDialog
+        isOpen={showExportDialog}
+        onClose={() => setShowExportDialog(false)}
+        filePath={filePath}
+        acceptedCuts={acceptedCuts}
+        onExport={handleExportWithOptions}
       />
     </div>
   );
