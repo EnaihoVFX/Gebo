@@ -2,6 +2,7 @@
 
 mod ffmpeg;
 mod waveform;
+mod project_file;
 
 
 #[tauri::command]
@@ -22,6 +23,18 @@ fn export_cutlist(input: String, output: String, ranges_to_cut: Vec<(f64, f64)>)
 #[tauri::command]
 fn make_preview_proxy(input: String) -> Result<String, String> {
   ffmpeg::make_preview_proxy(&input, Some(960)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_project_path(path: String) -> Result<project_file::ProjectFile, String> {
+  let p = std::path::Path::new(&path);
+  project_file::open_project_path(p).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_project_path(project: project_file::ProjectFile, path: String) -> Result<(), String> {
+  let p = std::path::Path::new(&path);
+  project_file::save_project_path(&project, p).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -102,6 +115,8 @@ fn main() {
       audio_peaks,
       export_cutlist,
       make_preview_proxy,
+      open_project_path,
+      save_project_path,
       read_file_as_base64,
       copy_to_app_data,
       get_file_url,
