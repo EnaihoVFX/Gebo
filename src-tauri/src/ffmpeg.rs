@@ -124,7 +124,7 @@ fn normalize_cuts(mut cuts: Vec<Cut>, duration: f64) -> Vec<Cut> {
   cuts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
   let mut merged: Vec<Cut> = Vec::new();
   for (s, e) in cuts {
-    if let Some((ms, me)) = merged.last_mut() {
+    if let Some((_, me)) = merged.last_mut() {
       if s <= *me + 0.005 {
         *me = me.max(e);
       } else {
