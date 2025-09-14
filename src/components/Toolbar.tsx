@@ -21,6 +21,11 @@ interface ToolbarProps {
   onTogglePlay: () => void;
   onSeekBack: () => void;
   onSeekForward: () => void;
+  onClearAllCuts: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  onMarkIn: () => void;
+  onMarkOut: () => void;
   filePath: string;
   probe: any;
   previewCuts: Range[];
@@ -48,6 +53,11 @@ export function Toolbar({
   onTogglePlay,
   onSeekBack,
   onSeekForward,
+  onClearAllCuts,
+  onUndo,
+  onRedo,
+  onMarkIn,
+  onMarkOut,
   filePath,
   probe,
   previewCuts,
@@ -90,6 +100,14 @@ export function Toolbar({
       <button onClick={onOpenCommand} disabled={!probe} className="px-3 py-2 rounded bg-zinc-800 text-zinc-200 disabled:opacity-50 hover:bg-zinc-700">⌘K Command</button>
       <button onClick={onAcceptPlan} disabled={!previewCuts.length} className="px-3 py-2 rounded bg-green-600 text-white disabled:opacity-50 hover:bg-green-700">Accept</button>
       <button onClick={onRejectPlan} disabled={!previewCuts.length} className="px-3 py-2 rounded bg-zinc-800 text-zinc-200 disabled:opacity-50 hover:bg-zinc-700">Reject</button>
+      
+      {/* Manual editing tools */}
+      <button onClick={onUndo} className="px-3 py-2 rounded bg-zinc-800 text-zinc-200 hover:bg-zinc-700" title="Undo (Ctrl+Z)">↶</button>
+      <button onClick={onRedo} className="px-3 py-2 rounded bg-zinc-800 text-zinc-200 hover:bg-zinc-700" title="Redo (Ctrl+Y)">↷</button>
+      <button onClick={onMarkIn} disabled={!probe} className="px-3 py-2 rounded bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-700" title="Mark In Point (I)">I</button>
+      <button onClick={onMarkOut} disabled={!probe} className="px-3 py-2 rounded bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-700" title="Mark Out Point (O)">O</button>
+      <button onClick={onClearAllCuts} disabled={!acceptedCuts.length} className="px-3 py-2 rounded bg-red-600 text-white disabled:opacity-50 hover:bg-red-700" title="Clear All Cuts">Clear All</button>
+      
       <button onClick={onExport} disabled={!acceptedCuts.length} className="px-3 py-2 rounded bg-indigo-600 text-white disabled:opacity-50 hover:bg-indigo-700">Export MP4</button>
 
       {/* Transport controls */}

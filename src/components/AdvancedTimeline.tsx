@@ -11,10 +11,12 @@ interface AdvancedTimelineProps {
   width?: number;
   height?: number;
   onSeek?: (t: number) => void;
+  onAddCut?: (range: Range) => void;
+  onRemoveCut?: (index: number) => void;
 }
 
 export function AdvancedTimeline({
-  peaks, duration, accepted, preview, filePath, width = 1100, height = 250, onSeek,
+  peaks, duration, accepted, preview, filePath, width = 1100, height = 250, onSeek, onAddCut, onRemoveCut,
 }: AdvancedTimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -28,6 +30,11 @@ export function AdvancedTimeline({
   const [isZooming, setIsZooming] = useState(false);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [isHoveringRuler, setIsHoveringRuler] = useState(false);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectionStart, setSelectionStart] = useState<number | null>(null);
+  const [selectionEnd, setSelectionEnd] = useState<number | null>(null);
+  const [showSelectionPreview, setShowSelectionPreview] = useState(false);
+  const [hoveredCutIndex, setHoveredCutIndex] = useState<number | null>(null);
   const zoomTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const zoomAnimationRef = useRef<number | null>(null);
   const thumbnailCache = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -531,20 +538,71 @@ export function AdvancedTimeline({
     }
 
     // Draw cut overlays (cover entire timeline height)
-    const drawRanges = (ranges: Range[], color: string) => {
+    const drawRanges = (ranges: Range[], color: string, isHoverable: boolean = false) => {
       if (!duration || !ranges.length) return;
-      ctx.fillStyle = color;
-      for (const r of ranges) {
+      
+      for (let i = 0; i < ranges.length; i++) {
+        const r = ranges[i];
         // Only draw cuts within the video duration
         if (r.start >= 0 && r.end <= duration) {
           const x1 = Math.max(0, Math.min(width, (r.start / duration) * (width * zoom) - pan));
           const x2 = Math.max(0, Math.min(width, (r.end / duration) * (width * zoom) - pan));
-          ctx.fillRect(x1, 0, Math.max(1, x2 - x1), height);
+          const cutWidth = Math.max(1, x2 - x1);
+          
+          // Different opacity for hovered cuts
+          const isHovered = isHoverable && hoveredCutIndex === i;
+          const alpha = isHovered ? 0.6 : 0.35;
+          
+          ctx.fillStyle = color.replace('0.35', alpha.toString());
+          ctx.fillRect(x1, 0, cutWidth, height);
+          
+          // Add hover indicator
+          if (isHovered) {
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x1, 0, cutWidth, height);
+          }
+          
+          // Add cut info for accepted cuts
+          if (cutWidth > 50 && color.includes("239, 68, 68")) {
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "10px monospace";
+            ctx.fillText(`Cut ${i + 1}`, x1 + 4, 20);
+            ctx.fillText(`${r.start.toFixed(1)}s - ${r.end.toFixed(1)}s`, x1 + 4, 35);
+          }
         }
       }
     };
-    drawRanges(preview, "rgba(245, 158, 11, 0.35)"); // amber-500
-    drawRanges(accepted, "rgba(239, 68, 68, 0.35)");  // red-600
+    drawRanges(preview, "rgba(245, 158, 11, 0.35)", false); // amber-500
+    drawRanges(accepted, "rgba(239, 68, 68, 0.35)", true);  // red-600 - hoverable
+
+    // Draw manual selection overlay
+    if (showSelectionPreview && selectionStart !== null && selectionEnd !== null && duration) {
+      const startX = (selectionStart / duration) * (width * zoom) - pan;
+      const endX = (selectionEnd / duration) * (width * zoom) - pan;
+      const selectionWidth = Math.max(1, endX - startX);
+      
+      // Draw selection overlay
+      ctx.fillStyle = "rgba(59, 130, 246, 0.3)"; // blue-500
+      ctx.fillRect(startX, 0, selectionWidth, height);
+      
+      // Draw selection border
+      ctx.strokeStyle = "#3b82f6";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(startX, 0, selectionWidth, height);
+      
+      // Add selection info
+      if (selectionWidth > 60) {
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "11px monospace";
+        ctx.textAlign = "center";
+        const centerX = startX + selectionWidth / 2;
+        ctx.fillText("New Cut", centerX, 25);
+        ctx.fillText(`${selectionStart.toFixed(1)}s - ${selectionEnd.toFixed(1)}s`, centerX, 40);
+        ctx.fillText(`Duration: ${(selectionEnd - selectionStart).toFixed(1)}s`, centerX, 55);
+        ctx.textAlign = "left";
+      }
+    }
 
     // Draw current time indicator (spans full height)
     if (currentTime >= 0) {
@@ -681,6 +739,11 @@ export function AdvancedTimeline({
       // Handle scrubbing - cursor follows mouse and updates time
       setCurrentTime(t);
       onSeek?.(t);
+    } else if (isSelecting && selectionStart !== null) {
+      // Handle manual selection
+      const clampedTime = Math.max(0, Math.min(duration, t));
+      setSelectionEnd(clampedTime);
+      setShowSelectionPreview(true);
     } else {
       // Handle time preview during hover (only in ruler area)
       const timeRulerHeight = height * 0.15;
@@ -690,6 +753,23 @@ export function AdvancedTimeline({
       
       if (isInRuler) {
         setCurrentTime(t);
+      }
+      
+      // Check for hover over accepted cuts
+      const allCuts = [...accepted];
+      let foundHover = false;
+      for (let i = 0; i < allCuts.length; i++) {
+        const cut = allCuts[i];
+        const cutStartX = (cut.start / duration) * (width * zoom) - pan;
+        const cutEndX = (cut.end / duration) * (width * zoom) - pan;
+        if (x >= cutStartX && x <= cutEndX) {
+          setHoveredCutIndex(i);
+          foundHover = true;
+          break;
+        }
+      }
+      if (!foundHover) {
+        setHoveredCutIndex(null);
       }
     }
   };
@@ -708,7 +788,18 @@ export function AdvancedTimeline({
     
     // Check if we're in the timeline area (not on zoom controls)
     if (e.target === e.currentTarget) {
-      if (isInRuler) {
+      // Check for right-click or middle-click for different modes
+      const isRightClick = e.button === 2;
+      const isShiftClick = e.shiftKey;
+      
+      if (isRightClick || isShiftClick) {
+        // Start manual selection mode
+        const clampedTime = Math.max(0, Math.min(duration, t));
+        setIsSelecting(true);
+        setSelectionStart(clampedTime);
+        setSelectionEnd(clampedTime);
+        setShowSelectionPreview(true);
+      } else if (isInRuler) {
         // Start scrubbing mode when clicking in the ruler
         setIsScrubbing(true);
         setCurrentTime(t);
@@ -726,6 +817,23 @@ export function AdvancedTimeline({
   };
 
   const handleMouseUp = () => {
+    if (isSelecting && selectionStart !== null && selectionEnd !== null) {
+      // Complete manual selection
+      const start = Math.min(selectionStart, selectionEnd);
+      const end = Math.max(selectionStart, selectionEnd);
+      
+      // Only add cut if selection is meaningful (at least 0.1 seconds)
+      if (end - start >= 0.1) {
+        onAddCut?.({ start, end });
+      }
+      
+      // Reset selection
+      setIsSelecting(false);
+      setSelectionStart(null);
+      setSelectionEnd(null);
+      setShowSelectionPreview(false);
+    }
+    
     setIsDragging(false);
     setIsScrubbing(false);
   };
@@ -734,6 +842,30 @@ export function AdvancedTimeline({
     setIsDragging(false);
     setIsScrubbing(false);
     setIsHoveringRuler(false);
+    setIsSelecting(false);
+    setSelectionStart(null);
+    setSelectionEnd(null);
+    setShowSelectionPreview(false);
+    setHoveredCutIndex(null);
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!duration) return;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    
+    // Double-click to remove cut at this position
+    const allCuts = [...accepted];
+    for (let i = 0; i < allCuts.length; i++) {
+      const cut = allCuts[i];
+      const cutStartX = (cut.start / duration) * (width * zoom) - pan;
+      const cutEndX = (cut.end / duration) * (width * zoom) - pan;
+      if (x >= cutStartX && x <= cutEndX) {
+        onRemoveCut?.(i);
+        break;
+      }
+    }
   };
 
 
@@ -814,10 +946,12 @@ export function AdvancedTimeline({
           onClick={handleClick}
           onMouseMove={handleMouseMove}
           onMouseDown={handleMouseDown}
-           onMouseUp={handleMouseUp}
-           onMouseLeave={handleMouseLeave}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
+          onDoubleClick={handleDoubleClick}
+          onContextMenu={(e) => e.preventDefault()} // Prevent right-click menu
           tabIndex={0}
-          className={`${isScrubbing ? 'cursor-grabbing' : 'cursor-grab'} hover:opacity-90 transition-opacity block focus:outline-none focus:ring-2 focus:ring-blue-500`}
+          className={`${isScrubbing ? 'cursor-grabbing' : isSelecting ? 'cursor-crosshair' : 'cursor-grab'} hover:opacity-90 transition-opacity block focus:outline-none focus:ring-2 focus:ring-blue-500`}
           style={{ height: `${height}px`, maxHeight: `${height}px` }}
         />
         
@@ -880,7 +1014,7 @@ export function AdvancedTimeline({
         <span className="inline-flex items-center gap-1">
           <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "rgba(245,158,11,0.8)" }}></span> Preview
         </span>
-         <span className="ml-auto">Click ruler to scrub • Drag timeline to pan • Use +/- buttons to zoom • Arrow keys: fine scrub • Shift+arrows: coarse scrub</span>
+         <span className="ml-auto">Click ruler to scrub • Drag timeline to pan • Right-click/Shift+drag to select cuts • Double-click cuts to remove • Use +/- buttons to zoom • Arrow keys: fine scrub • Shift+arrows: coarse scrub</span>
       </div>
     </div>
   );
