@@ -25,3 +25,19 @@ export async function exportCutlist(input: string, output: string, ranges: {star
 export async function makePreviewProxy(path: string): Promise<string> {
   return await invoke("make_preview_proxy", { input: path }) as string;
 }
+export async function readFileAsBase64(path: string): Promise<string> {
+  return await invoke("read_file_as_base64", { path }) as string;
+}
+export async function copyToAppData(path: string): Promise<string> {
+  return await invoke("copy_to_app_data", { path }) as string;
+}
+export async function readFileChunk(path: string, offset: number, size: number): Promise<number[]> {
+  return await invoke("read_file_chunk", { path, offset, size }) as number[];
+}
+export async function getFileSize(path: string): Promise<number> {
+  return await invoke("get_file_size", { path }) as number;
+}
+
+export async function generateThumbnails(path: string, count: number, width: number): Promise<string[]> {
+  return await invoke("generate_thumbnails", { path, count, width }) as string[];
+}
