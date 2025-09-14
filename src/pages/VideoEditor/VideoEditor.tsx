@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-// import { save } from "@tauri-apps/plugin-dialog"; // Removed unused import
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { exportCutlist, makePreviewProxy, readFileAsBase64, copyToAppData } from "../../lib/ffmpeg";
-import type { Range, PlayerHandle } from "../../types";
+import { exportCutlist } from "../../lib/ffmpeg";
+import type { Range, PlayerHandle, Track, Clip } from "../../types";
 import { Player } from "./components/Player";
-import { AdvancedTimeline } from "./components/AdvancedTimeline";
+import { AdvancedTimeline, type AdvancedTimelineHandle } from "./components/AdvancedTimeline";
 import { VideoTimeline } from "./components/VideoTimeline";
 import { CommandDialog } from "./components/CommandDialog";
 import { Sidebar } from "./components/Sidebar";
@@ -14,6 +12,13 @@ import { ExportDialog } from "./components/ExportDialog";
 import { useFileHandling } from "./hooks/useFileHandling";
 import { useWaveformLogic } from "./hooks/useWaveformLogic";
 import { useCommandLogic } from "./hooks/useCommandLogic";
+import { MediaGrid } from "./components/MediaGrid";
+import { 
+  Home, 
+  Info, 
+  BarChart3, 
+  Play
+} from "lucide-react";
 
 import { useNavigate } from 'react-router-dom';
 import DebugProjectFileInfo from "./components/DebugProjectFileInfo";
@@ -28,6 +33,22 @@ export default function VideoEditor() {
   const [previewCuts, setPreviewCuts] = useState<Range[]>([]);
   const [acceptedCuts, setAcceptedCuts] = useState<Range[]>([]);
   
+  // Tracks
+  const [tracks, setTracks] = useState<Track[]>([
+    {
+      id: 'video-1',
+      name: 'Video Track',
+      type: 'video',
+      enabled: true,
+      muted: false,
+      volume: 100,
+      order: 0
+    }
+  ]);
+
+  // Clips on timeline
+  const [clips, setClips] = useState<Clip[]>([]);
+  
   // Undo/Redo system
   const [editHistory, setEditHistory] = useState<Range[][]>([[]]);
   const [historyIndex, setHistoryIndex] = useState(0);
@@ -37,13 +58,14 @@ export default function VideoEditor() {
   const [showExportDialog, setShowExportDialog] = useState(false);
   
   // Timeline view mode
-  const [useAdvancedTimeline, setUseAdvancedTimeline] = useState(true);
+  const [useAdvancedTimeline] = useState(true);
   
   // Mobile debug panel
   const [showMobileDebug, setShowMobileDebug] = useState(false);
 
   // Players control
   const editedRef = useRef<PlayerHandle>(null);
+  const advancedTimelineRef = useRef<AdvancedTimelineHandle>(null);
 
   // Custom hooks
   const {
@@ -53,10 +75,9 @@ export default function VideoEditor() {
     peaks,
     debug,
     log,
-    setPreviewUrl,
-    createBlobFromFile,
-    pickFile,
-    resetApp,
+    mediaFiles,
+    pickMultipleFiles,
+    removeMediaFile,
   } = useFileHandling();
 
   const { mergeRanges, detectSilences, tightenSilences } = useWaveformLogic(probe, peaks);
@@ -117,23 +138,7 @@ export default function VideoEditor() {
   }, []);
 
   // ---------- File handling ----------
-  const handlePickFile = async () => {
-    const selectedFile = await pickFile();
-    if (selectedFile) {
-      setAcceptedCuts([]);
-      setPreviewCuts([]);
-      // Seek player to 0 after a short delay to ensure video is loaded
-      setTimeout(() => {
-        editedRef.current?.seek(0);
-      }, 100);
-    }
-  };
-
-  const handleResetApp = () => {
-    resetApp();
-    setAcceptedCuts([]);
-    setPreviewCuts([]);
-  };
+  // Note: handlePickFile and handleResetApp are no longer used since we're using MediaGrid
 
   // ---------- Commands ----------
   const handleExecuteCommand = (command: string) => {
@@ -198,12 +203,99 @@ export default function VideoEditor() {
     }
   };
 
-  const clearAllCuts = () => {
-    if (acceptedCuts.length > 0) {
-      setAcceptedCuts([]);
-      setPreviewCuts([]);
-      saveToHistory([]);
-      log("Cleared all cuts");
+
+  // Track management functions
+  const updateTrack = (trackId: string, updates: Partial<Track>) => {
+    setTracks(prevTracks => 
+      prevTracks.map(track => 
+        track.id === trackId ? { ...track, ...updates } : track
+      )
+    );
+  };
+
+  // Handle dropping media files onto timeline tracks
+  const handleDropMedia = (mediaFile: any, trackId: string, offset: number, event?: React.DragEvent) => {
+    console.log("handleDropMedia called with:", { mediaFile, trackId, offset });
+    log(`Dropped ${mediaFile.name} onto track ${trackId} at ${offset.toFixed(2)}s`);
+    
+    // Create a clip from the media file
+    // Use full video duration
+    const clipDuration = mediaFile.duration;
+    
+    // Check if user wants manual placement (hold Shift key)
+    const isManualPlacement = event?.shiftKey || false;
+    
+    let finalOffset = offset;
+    
+    if (!isManualPlacement) {
+      // Auto-placement: Find the next available position (end of last clip on this track)
+      const existingClipsOnTrack = clips.filter(clip => clip.trackId === trackId);
+      let nextAvailableOffset = 0;
+      
+      if (existingClipsOnTrack.length > 0) {
+        // Find the latest end time of clips on this track
+        const latestEndTime = Math.max(...existingClipsOnTrack.map(clip => clip.offset + (clip.endTime - clip.startTime)));
+        nextAvailableOffset = latestEndTime;
+      }
+      
+      finalOffset = nextAvailableOffset;
+      log(`Auto-placing clip at ${finalOffset.toFixed(2)}s (next available position)`);
+    } else {
+      log(`Manual placement at ${finalOffset.toFixed(2)}s (Shift key held)`);
+    }
+    
+    const clip: Clip = {
+      id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      mediaFileId: mediaFile.id,
+      name: mediaFile.name,
+      startTime: 0, // Start from beginning of media
+      endTime: clipDuration, // Use limited duration
+      trackId: trackId,
+      offset: finalOffset
+    };
+    
+    console.log("Created clip:", clip);
+    
+    // Add clip to state
+    setClips(prevClips => {
+      const newClips = [...prevClips, clip];
+      console.log("Updated clips array:", newClips);
+      log(`Created clip: ${clip.name} (${clip.startTime.toFixed(2)}s - ${clip.endTime.toFixed(2)}s) at offset ${clip.offset.toFixed(2)}s`);
+      log(`Total clips now: ${newClips.length}`);
+      return newClips;
+    });
+
+    // Note: Clips are now independent and don't need to be converted to cuts
+    // Each clip will show its own waveform and thumbnail
+  };
+
+  const addTrack = (type: Track['type']) => {
+    const newTrack: Track = {
+      id: `${type}-${Date.now()}`,
+      name: `${type.charAt(0).toUpperCase() + type.slice(1)} Track ${tracks.filter(t => t.type === type).length + 1}`,
+      type,
+      enabled: true,
+      muted: false,
+      volume: 100,
+      order: tracks.length
+    };
+    setTracks(prevTracks => [...prevTracks, newTrack]);
+    log(`Added new ${type} track: ${newTrack.name}`);
+  };
+
+  const deleteTrack = (trackId: string) => {
+    const track = tracks.find(t => t.id === trackId);
+    if (track) {
+      setTracks(prevTracks => prevTracks.filter(t => t.id !== trackId));
+      log(`Deleted track: ${track.name}`);
+    }
+  };
+
+  const deleteClip = (clipId: string) => {
+    const clip = clips.find(c => c.id === clipId);
+    if (clip) {
+      setClips(prevClips => prevClips.filter(c => c.id !== clipId));
+      log(`Deleted clip: ${clip.name}`);
     }
   };
 
@@ -359,293 +451,255 @@ export default function VideoEditor() {
 
   const duration = probe?.duration || 0;
 
-  // ---------- Toolbar handlers ----------
-  const handleTestSampleVideo = () => {
-    const testUrl = "https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4";
-    setPreviewUrl(testUrl);
-    log(`Testing with sample video: ${testUrl}`);
-  };
-
-  const handleUseLocalFileBlob = async () => {
-    if (filePath) {
-      try {
-        log(`Creating blob URL for local file...`);
-        const blobUrl = await createBlobFromFile(filePath);
-        setPreviewUrl(blobUrl);
-        log(`Using local file blob URL: ${blobUrl}`);
-      } catch (e: unknown) {
-        log(`Blob creation failed: ${e?.toString?.() || e}`);
-      }
-    }
-  };
-
-  const handleTryFileProtocol = () => {
-    if (filePath) {
-      const fileUrl = `file://${filePath}`;
-      setPreviewUrl(fileUrl);
-      log(`Using file:// URL: ${fileUrl}`);
-    }
-  };
-
-  const handleClearVideo = () => {
-    setPreviewUrl("");
-    log("Cleared preview URL - video players should be empty now");
-  };
-
-  const handleTestFileAccess = () => {
-    if (filePath) {
-      log(`Raw file path: ${filePath}`);
-      log(`File exists check: ${filePath}`);
-      // Test if we can access the file directly
-      fetch(convertFileSrc(filePath))
-        .then(response => {
-          log(`File fetch response: ${response.status} ${response.statusText}`);
-          if (!response.ok) {
-            log(`File fetch failed: ${response.statusText}`);
-          }
-        })
-        .catch(err => {
-          log(`File fetch error: ${err.message}`);
-        });
-    }
-  };
-
-  const handleForceProxy = async () => {
-    if (filePath) {
-      try {
-        log(`Creating preview proxy for problematic file...`);
-        const prox = await makePreviewProxy(filePath);
-        const proxyUrl = convertFileSrc(prox);
-        setPreviewUrl(proxyUrl);
-        log(`Using proxy: ${proxyUrl}`);
-      } catch (e: unknown) {
-        log(`Proxy creation failed: ${e?.toString?.() || e}`);
-      }
-    }
-  };
-
-  const handleCopyToAppData = async () => {
-    if (filePath) {
-      try {
-        log(`Copying file to app data directory...`);
-        const appDataPath = await copyToAppData(filePath);
-        const appDataUrl = convertFileSrc(appDataPath);
-        setPreviewUrl(appDataUrl);
-        log(`Using app data file: ${appDataUrl}`);
-      } catch (e: unknown) {
-        log(`App data copy failed: ${e?.toString?.() || e}`);
-      }
-    }
-  };
-
-  const handleTryBlobUrl = async () => {
-    if (filePath) {
-      try {
-        log(`Trying blob URL approach...`);
-        // Try to read the file as a blob and create a blob URL
-        const response = await fetch(convertFileSrc(filePath));
-        if (response.ok) {
-          const blob = await response.blob();
-          const blobUrl = URL.createObjectURL(blob);
-          setPreviewUrl(blobUrl);
-          log(`Using blob URL: ${blobUrl}`);
-        } else {
-          log(`Failed to fetch file for blob: ${response.status}`);
-        }
-      } catch (e: unknown) {
-        log(`Blob URL creation failed: ${e?.toString?.() || e}`);
-      }
-    }
-  };
-
-  const handleCreateBlobFromChunks = async () => {
-    if (filePath) {
-      try {
-        const blobUrl = await createBlobFromFile(filePath);
-        setPreviewUrl(blobUrl);
-        log(`Using chunked blob URL: ${blobUrl}`);
-      } catch (e: unknown) {
-        log(`Chunked blob creation failed: ${e?.toString?.() || e}`);
-      }
-    }
-  };
-
-  const handleTryDataUrl = async () => {
-    if (filePath && probe) {
-      try {
-        // Only try base64 for smaller files (< 50MB estimated)
-        const estimatedSize = probe.duration * 1000000; // rough estimate
-        if (estimatedSize > 50000000) {
-          log(`File too large for base64 approach (estimated ${Math.round(estimatedSize / 1000000)}MB). Use Force Proxy instead.`);
-          return;
-        }
-
-        log(`Trying base64 data URL approach for small file...`);
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Timeout after 30 seconds')), 30000)
-        );
-
-        const base64Promise = readFileAsBase64(filePath);
-        const base64 = await Promise.race([base64Promise, timeoutPromise]) as string;
-        const dataUrl = `data:video/mp4;base64,${base64}`;
-        setPreviewUrl(dataUrl);
-        log(`Using data URL (first 100 chars): ${dataUrl.substring(0, 100)}...`);
-      } catch (e: unknown) {
-        log(`Base64 data URL creation failed: ${e?.toString?.() || e}`);
-      }
-    }
-  };
 
   return (
-    <div className="h-screen bg-zinc-950 text-zinc-100 flex flex-col overflow-hidden">
+    <div className="h-screen bg-editor-bg-primary text-slate-100 flex flex-col overflow-hidden">
       
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 flex-wrap p-2 border-b border-zinc-800 flex-shrink-0">
-        <button onClick={() => navigate('/')}>Go to Home</button>
-        <button onClick={() => setJsonModal(true)}>Show projectFile.json</button>
-        <Toolbar
-          onPickFile={handlePickFile}
-          onResetApp={handleResetApp}
-          onTestSampleVideo={handleTestSampleVideo}
-          onUseLocalFileBlob={handleUseLocalFileBlob}
-          onTryFileProtocol={handleTryFileProtocol}
-          onClearVideo={handleClearVideo}
-          onTestFileAccess={handleTestFileAccess}
-          onForceProxy={handleForceProxy}
-          onCopyToAppData={handleCopyToAppData}
-          onTryBlobUrl={handleTryBlobUrl}
-          onCreateBlobFromChunks={handleCreateBlobFromChunks}
-          onTryDataUrl={handleTryDataUrl}
-          onOpenCommand={openCommand}
-          onAcceptPlan={acceptPlan}
-          onRejectPlan={rejectPlan}
-          onExport={onExport}
-          onTogglePlay={togglePlay}
-          onSeekBack={() => seekVideo(Math.max(0, (editedRef.current?.currentTime() || 0) - 1))}
-          onSeekForward={() => seekVideo((editedRef.current?.currentTime() || 0) + 1)}
-          onClearAllCuts={clearAllCuts}
-          onUndo={undo}
-          onRedo={redo}
-          onMarkIn={markIn}
-          onMarkOut={markOut}
-          filePath={filePath}
-          probe={probe}
-          previewCuts={previewCuts}
-          acceptedCuts={acceptedCuts}
-          editedRef={editedRef}
-        />
-      </div>
-
-      {/* Main Content Area */}
-      <div className="flex-1 grid grid-cols-[1fr_320px] overflow-hidden min-h-0">
-        {/* Center Content */}
-        <div className="flex flex-col overflow-hidden min-h-0">
-          {/* Mobile Debug Toggle - Only visible on small screens */}
-          <div className="md:hidden border-b border-zinc-800 p-2">
-            <button
-              onClick={() => setShowMobileDebug(!showMobileDebug)}
-              className="w-full px-3 py-2 text-xs rounded bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+      {/* Header Bar - Responsive Design */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between px-3 sm:px-4 py-2 sm:py-3 bg-editor-bg-secondary border-b border-editor-border-secondary flex-shrink-0 gap-3 lg:gap-0">
+        <div className="flex items-center gap-3 sm:gap-4 h-10">
+          <div className="flex items-center gap-2">
+            <img src="/logo.png" alt="Video Copilot Logo" className="h-6 w-auto" />
+          </div>
+          <div className="flex items-center gap-1 sm:gap-2">
+            <button 
+              onClick={() => navigate('/')}
+              className="flex items-center justify-center w-8 h-8 text-editor-text-secondary hover:text-editor-text-primary hover:bg-editor-bg-tertiary rounded-lg transition-colors border-0 p-0"
+              title="Home"
             >
-              {showMobileDebug ? "Hide" : "Show"} Debug Info
+              <Home className="w-4 h-4 flex-shrink-0" />
+            </button>
+            <button 
+              onClick={() => setJsonModal(true)}
+              className="flex items-center justify-center w-8 h-8 text-editor-text-secondary hover:text-editor-text-primary hover:bg-editor-bg-tertiary rounded-lg transition-colors border-0 p-0"
+              title="Project Info"
+            >
+              <Info className="w-4 h-4 flex-shrink-0" />
             </button>
           </div>
+        </div>
+        
+        {/* Main Toolbar - Responsive */}
+        <div className="flex items-center justify-end lg:justify-start h-10">
+          <Toolbar
+            onExport={onExport}
+            onUndo={undo}
+            onRedo={redo}
+            acceptedCuts={acceptedCuts}
+          />
+        </div>
+      </div>
 
-          {/* Mobile Debug Panel */}
-          {showMobileDebug && (
-            <div className="md:hidden border-b border-zinc-800 p-4 bg-zinc-900">
-              <div className="space-y-2 text-xs">
-                <div>
-                  <span className="text-zinc-500">File Path:</span>
-                  <div className="text-zinc-400 break-all">{filePath || "None"}</div>
+      {/* Main Content Area - Media Left, Video Center, Tools Right */}
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        {/* Left Panel - Tools & Media */}
+        <div className="block w-[42rem] 2xl:w-[46rem] flex h-full min-h-0 gap-0">
+          {/* Left Section - Tools */}
+          <div className="w-56 border border-slate-700 bg-slate-700 rounded-l-lg overflow-hidden flex flex-col h-full min-h-0">
+            {/* Header */}
+            <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-white">Tools</h3>
+              <div className="text-slate-400">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                </svg>
+              </div>
+            </div>
+            
+            {/* Tools Content */}
+            <div className="bg-slate-800 flex-1 p-3">
+              <div className="space-y-3">
+                {/* Quick Actions */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-medium text-slate-300 uppercase tracking-wide">Quick Actions</h4>
+                  <div className="space-y-1">
+                    <button 
+                      onClick={markIn}
+                      className="w-full px-3 py-2 text-sm bg-slate-700 text-slate-200 hover:bg-slate-600 rounded transition-colors flex items-center gap-2"
+                    >
+                      <span className="text-xs">I</span>
+                      Mark In
+                    </button>
+                    <button 
+                      onClick={markOut}
+                      className="w-full px-3 py-2 text-sm bg-slate-700 text-slate-200 hover:bg-slate-600 rounded transition-colors flex items-center gap-2"
+                    >
+                      <span className="text-xs">O</span>
+                      Mark Out
+                    </button>
+                    <button 
+                      onClick={togglePlay}
+                      className="w-full px-3 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition-colors flex items-center gap-2"
+                    >
+                      <span className="text-xs">Space</span>
+                      Play/Pause
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-zinc-500">Duration:</span>
-                  <div className="text-zinc-400">{probe ? `${probe.duration}s` : "None"}</div>
+
+                {/* Track Management */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-medium text-slate-300 uppercase tracking-wide">Tracks</h4>
+                  <div className="space-y-1">
+                    <button 
+                      onClick={() => addTrack('video')}
+                      className="w-full px-3 py-2 text-sm bg-slate-700 text-slate-200 hover:bg-slate-600 rounded transition-colors flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                      </svg>
+                      Add Video Track
+                    </button>
+                    <button 
+                      onClick={() => addTrack('audio')}
+                      className="w-full px-3 py-2 text-sm bg-slate-700 text-slate-200 hover:bg-slate-600 rounded transition-colors flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                      </svg>
+                      Add Audio Track
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-zinc-500">Cuts:</span>
-                  <div className="text-zinc-400">Accepted: {acceptedCuts.length}, Preview: {previewCuts.length}</div>
+
+                {/* Edit History */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-medium text-slate-300 uppercase tracking-wide">History</h4>
+                  <div className="space-y-1">
+                    <button 
+                      onClick={undo}
+                      disabled={historyIndex <= 0}
+                      className="w-full px-3 py-2 text-sm bg-slate-700 text-slate-200 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors flex items-center gap-2"
+                    >
+                      <span className="text-xs">⌘Z</span>
+                      Undo
+                    </button>
+                    <button 
+                      onClick={redo}
+                      disabled={historyIndex >= editHistory.length - 1}
+                      className="w-full px-3 py-2 text-sm bg-slate-700 text-slate-200 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors flex items-center gap-2"
+                    >
+                      <span className="text-xs">⌘⇧Z</span>
+                      Redo
+                    </button>
+                  </div>
                 </div>
-                <div className="mt-2">
-                  <span className="text-zinc-500">Recent Logs:</span>
-                  <pre className="text-zinc-400 whitespace-pre-wrap text-xs max-h-32 overflow-y-auto">
-                    {debug.split('\n').slice(-5).join('\n') || "No recent logs"}
-                  </pre>
+
+                {/* Project Info */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-medium text-slate-300 uppercase tracking-wide">Project</h4>
+                  <div className="text-xs text-slate-400 space-y-1">
+                    <div>Clips: {clips.length}</div>
+                    <div>Tracks: {tracks.length}</div>
+                    <div>Cuts: {acceptedCuts.length}</div>
+                    {probe && (
+                      <div>Duration: {probe.duration?.toFixed(1)}s</div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          )}
+          </div>
 
-          {previewUrl ? (
-            <>
-              {/* Main Preview Area - Only Edited Video */}
-              <div className="flex-1 flex flex-col p-3 overflow-hidden min-h-0">
-                {/* Main Player - Edited (accepted only) */}
-                <div className="flex-1 min-h-0 max-h-full flex items-center justify-center">
+          {/* Right Section - Media */}
+          <div className="flex-1 border border-l-0 border-slate-700 bg-slate-900 rounded-r-lg overflow-hidden flex flex-col h-full min-h-0">
+            {/* Header */}
+            <div className="px-3 sm:px-4 py-1.5 sm:py-2.5 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-white">Media</h3>
+              <button
+                onClick={pickMultipleFiles}
+                className="flex items-center gap-1.5 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+              >
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                </svg>
+                Add Media
+              </button>
+            </div>
+            
+            {/* Media Grid Section */}
+            <div className="bg-slate-950 flex-1">
+              <MediaGrid
+                mediaFiles={mediaFiles}
+                onAddMedia={pickMultipleFiles}
+                onRemoveMedia={removeMediaFile}
+                onDragStart={(mediaFile) => {
+                  // Handle drag start - this will be used for drag and drop to timeline
+                  log(`Started dragging: ${mediaFile.name}`);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Center Panel - Video Preview */}
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0 bg-slate-900 min-w-0">
+          <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden flex flex-col h-full min-h-0">
+            {/* Header */}
+            <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-white">Preview</h3>
+              <div className="text-slate-400">
+                <Play className="w-4 h-4" fill="currentColor" />
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="flex-1 flex flex-col overflow-hidden min-h-0 bg-slate-900">
+              {/* Mobile Debug Toggle */}
+              <div className="lg:hidden border-b border-slate-700 p-2">
+                <button
+                  onClick={() => setShowMobileDebug(!showMobileDebug)}
+                  className="w-full px-3 py-2 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors flex items-center justify-center gap-2"
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  {showMobileDebug ? "Hide Debug" : "Show Debug"}
+                </button>
+              </div>
+
+              {/* Mobile Debug Panel */}
+              {showMobileDebug && (
+                <div className="lg:hidden border-b border-slate-700 p-4 bg-slate-800">
+                  <div className="space-y-2 text-xs">
+                    <div>
+                      <span className="text-slate-400">File Path:</span>
+                      <div className="text-slate-300 break-all">{filePath || "None"}</div>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Duration:</span>
+                      <div className="text-slate-300">{probe ? `${probe.duration}s` : "None"}</div>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Cuts:</span>
+                      <div className="text-slate-300">Accepted: {acceptedCuts.length}, Preview: {previewCuts.length}</div>
+                    </div>
+                    <div className="mt-2">
+                      <span className="text-slate-400">Recent Logs:</span>
+                      <pre className="text-slate-300 whitespace-pre-wrap text-xs max-h-32 overflow-y-auto">
+                        {debug.split('\n').slice(-5).join('\n') || "No recent logs"}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Video Preview Area - Always Visible */}
+              <div className="flex-1 flex flex-col overflow-hidden min-h-0 p-2 sm:p-3 lg:p-4">
+                <div className="flex-1 flex items-center justify-center w-full h-full">
                   <Player
                     ref={editedRef}
-                    src={previewUrl}
-                    label="Edited (Accepted timeline)"
+                    src={clips.length > 0 ? mediaFiles.find(mf => mf.id === clips[0].mediaFileId)?.previewUrl || previewUrl || "" : previewUrl || ""}
+                    label="Preview"
                     cuts={acceptedCuts}
                     large
                   />
                 </div>
               </div>
-
-
-              {/* Timeline at Bottom */}
-              <div className="flex-shrink-0 border-t border-zinc-800 p-3 min-h-0">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs text-zinc-400">
-                      Timeline View: {useAdvancedTimeline ? "Advanced (Zoom & Pan)" : "Basic"}
-                    </div>
-                    <button
-                      onClick={() => setUseAdvancedTimeline(!useAdvancedTimeline)}
-                      className="px-3 py-1 text-xs rounded bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
-                    >
-                      {useAdvancedTimeline ? "Switch to Basic" : "Switch to Advanced"}
-                    </button>
-                  </div>
-                  
-                  <ErrorBoundary>
-                    {useAdvancedTimeline ? (
-                      <AdvancedTimeline
-                        peaks={peaks}
-                        duration={duration}
-                        accepted={acceptedCuts}
-                        preview={previewCuts}
-                        filePath={filePath}
-                        onSeek={seekVideo}
-                        onAddCut={handleAddCut}
-                        onRemoveCut={handleRemoveCut}
-                      />
-                    ) : (
-                      <VideoTimeline
-                        peaks={peaks}
-                        duration={duration}
-                        accepted={acceptedCuts}
-                        preview={previewCuts}
-                        filePath={filePath}
-                        onSeek={seekVideo}
-                      />
-                    )}
-                  </ErrorBoundary>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-zinc-400">
-              <div className="text-center">
-                <p className="text-lg mb-2">No video loaded</p>
-                <p className="text-sm">Click "Open video" to select a video file.</p>
-              </div>
             </div>
-          )}
+          </div>
         </div>
 
-        {/* Right Sidebar - Hidden on small screens, collapsible on larger screens */}
-        <div className="hidden md:block">
+        {/* Right Panel - Tools & Chat */}
+        <div className="hidden lg:block w-80 xl:w-96 border border-slate-700 bg-slate-800 rounded-lg overflow-hidden flex flex-col h-full min-h-0">
           <Sidebar
             debug={debug}
             filePath={filePath}
@@ -659,6 +713,42 @@ export default function VideoEditor() {
             onRejectPlan={rejectPlan}
           />
         </div>
+      </div>
+
+      {/* Timeline Section - Always Visible */}
+      <div className="flex-shrink-0 border-t border-editor-border-secondary bg-editor-bg-primary">
+        <ErrorBoundary>
+          {useAdvancedTimeline ? (
+            <AdvancedTimeline
+              ref={advancedTimelineRef}
+              peaks={peaks}
+              duration={duration}
+              accepted={acceptedCuts}
+              preview={previewCuts}
+              filePath={filePath}
+              tracks={tracks}
+              clips={clips}
+              mediaFiles={mediaFiles}
+              onSeek={seekVideo}
+              onAddCut={handleAddCut}
+              onRemoveCut={handleRemoveCut}
+              onUpdateTrack={updateTrack}
+              onAddTrack={addTrack}
+              onDeleteTrack={deleteTrack}
+              onDropMedia={handleDropMedia}
+              onDeleteClip={deleteClip}
+            />
+          ) : (
+            <VideoTimeline
+              peaks={peaks}
+              duration={duration}
+              accepted={acceptedCuts}
+              preview={previewCuts}
+              filePath={filePath}
+              onSeek={seekVideo}
+            />
+          )}
+        </ErrorBoundary>
       </div>
 
       {/* Command dialog */}

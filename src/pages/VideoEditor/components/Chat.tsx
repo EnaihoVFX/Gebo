@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { Send, ChevronDown } from "lucide-react";
 import { ChatMessage } from "./ChatMessage";
 import type { ChatMessage as ChatMessageType, Range } from "../../../types";
 
@@ -163,13 +164,13 @@ export function Chat({
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-4 relative" ref={messagesContainerRef}>
+      <div className="flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4 space-y-4 relative" ref={messagesContainerRef}>
         {messages.map((message) => (
           <ChatMessage key={message.id} message={message} />
         ))}
         
         {isLoading && (
-          <div className="flex items-center gap-2 text-zinc-400">
+          <div className="flex items-center gap-2 text-editor-text-tertiary">
             <div className="flex gap-1">
               <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"></div>
               <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: "0.1s" }}></div>
@@ -185,18 +186,16 @@ export function Chat({
         {showScrollButton && (
           <button
             onClick={scrollToBottom}
-            className="absolute bottom-4 right-4 p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-full shadow-lg transition-colors"
+            className="absolute bottom-4 right-4 p-2 bg-editor-bg-secondary hover:bg-editor-interactive-hover text-editor-text-secondary rounded-full shadow-lg transition-colors"
             title="Scroll to bottom"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-            </svg>
+            <ChevronDown className="w-4 h-4" />
           </button>
         )}
       </div>
 
       {/* Input Area */}
-      <div className="p-3 border-t border-zinc-800 flex gap-2">
+      <div className="p-2 sm:p-3 lg:p-4 border-t border-slate-700 flex gap-2">
         <textarea
           ref={inputRef}
           value={inputValue}
@@ -205,16 +204,16 @@ export function Chat({
           onFocus={() => console.log('Textarea focused')}
           onBlur={() => console.log('Textarea blurred')}
           placeholder="Type a command..."
-          className="flex-1 px-3 py-2 text-sm bg-zinc-800 border border-zinc-700 rounded text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 resize-none min-h-[40px] max-h-[120px]"
+          className="flex-1 px-3 py-2 text-sm bg-editor-bg-secondary border border-editor-border-secondary rounded text-editor-text-secondary placeholder-editor-text-muted focus:outline-none focus:border-editor-border-primary resize-none min-h-[40px] max-h-[120px]"
           rows={1}
           disabled={isLoading}
         />
         <button
           onClick={handleSendMessage}
           disabled={!inputValue.trim() || isLoading}
-          className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 text-white rounded transition-colors"
+          className="px-3 py-2 bg-editor-status-info hover:bg-blue-700 disabled:bg-editor-bg-tertiary text-white rounded transition-colors flex items-center justify-center"
         >
-          {isLoading ? "..." : "→"}
+          {isLoading ? "..." : <Send className="w-4 h-4" />}
         </button>
       </div>
     </div>

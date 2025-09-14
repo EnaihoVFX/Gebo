@@ -1,3 +1,5 @@
+import type { Probe } from "./lib/ffmpeg";
+
 export type Range = { start: number; end: number };
 
 export type PlayerHandle = {
@@ -54,4 +56,39 @@ export type ChatAction = {
   type: "accept" | "reject" | "custom";
   label: string;
   onClick: () => void;
+};
+
+export type Track = {
+  id: string;
+  name: string;
+  type: "video" | "audio" | "text" | "effect";
+  enabled: boolean;
+  muted: boolean;
+  volume: number;
+  order: number;
+};
+
+export type MediaFile = {
+  id: string;
+  name: string;
+  path: string;
+  previewUrl: string;
+  thumbnailUrl?: string;
+  thumbnails?: string[]; // Multiple thumbnails for filmstrip
+  probe: Probe;
+  peaks: number[];
+  duration: number;
+  width: number;
+  height: number;
+  type: "video" | "audio";
+};
+
+export type Clip = {
+  id: string;
+  mediaFileId: string;
+  name: string;
+  startTime: number;
+  endTime: number;
+  trackId: string;
+  offset: number; // Position on the timeline
 };

@@ -1,11 +1,13 @@
-import { forwardRef, useImperativeHandle, useRef, useEffect } from "react";
+import { forwardRef, useImperativeHandle, useRef, useEffect, useState } from "react";
+import { Play, Pause, SkipBack, SkipForward } from "lucide-react";
 import type { PlayerHandle, PlayerProps, Range } from "../../../types";
 
 export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
-  { src, label, cuts, large = false },
+  { src, cuts, large = false },
   ref
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
   useSkipPlayback(videoRef, cuts);
 
   // Reset video when source changes
@@ -16,13 +18,64 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     }
   }, [src]);
 
+  // Control functions
+  const handlePlay = () => {
+    if (videoRef.current && videoRef.current.readyState >= 2) {
+      videoRef.current.play().catch(console.error);
+      setIsPlaying(true);
+    }
+  };
+
+  const handlePause = () => {
+    videoRef.current?.pause();
+    setIsPlaying(false);
+  };
+
+  const handleTogglePlay = () => {
+    if (isPlaying) {
+      handlePause();
+    } else {
+      handlePlay();
+    }
+  };
+
+  const handleSeekBack = () => {
+    if (videoRef.current) {
+      const newTime = Math.max(0, videoRef.current.currentTime - 1);
+      videoRef.current.currentTime = newTime;
+    }
+  };
+
+  const handleSeekForward = () => {
+    if (videoRef.current) {
+      const newTime = videoRef.current.currentTime + 1;
+      videoRef.current.currentTime = newTime;
+    }
+  };
+
+  // Update playing state when video state changes
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handlePlayEvent = () => setIsPlaying(true);
+    const handlePauseEvent = () => setIsPlaying(false);
+    const handleEndedEvent = () => setIsPlaying(false);
+
+    video.addEventListener('play', handlePlayEvent);
+    video.addEventListener('pause', handlePauseEvent);
+    video.addEventListener('ended', handleEndedEvent);
+
+    return () => {
+      video.removeEventListener('play', handlePlayEvent);
+      video.removeEventListener('pause', handlePauseEvent);
+      video.removeEventListener('ended', handleEndedEvent);
+    };
+  }, []);
+
   useImperativeHandle(ref, () => ({
-    play: () => {
-      if (videoRef.current && videoRef.current.readyState >= 2) {
-        videoRef.current.play().catch(console.error);
-      }
-    },
-    pause: () => videoRef.current?.pause(),
+    play: handlePlay,
+    pause: handlePause,
     seek: (t: number) => {
       if (videoRef.current && videoRef.current.readyState >= 2) {
         videoRef.current.currentTime = Math.max(0, t);
@@ -33,50 +86,133 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   }), []);
 
   return (
-    <div className={`rounded border border-zinc-800 ${large ? "p-3" : "p-2"} ${large ? "max-w-[900px]" : "max-w-[450px]"}`}>
-      <div className="text-xs mb-2 text-zinc-400">{label}</div>
-      <div className="text-xs mb-1 text-zinc-500 truncate">Source: {src}</div>
-      <video
-        key={`${src}|${cuts.length}|${JSON.stringify(cuts)}`}
-        ref={videoRef}
-        src={src}
-        controls
-        playsInline
-        preload="metadata"
-        disablePictureInPicture
-        className={`rounded w-full ${large ? "max-h-[25vh] max-w-[800px]" : "max-h-[15vh] max-w-[400px]"} object-contain bg-black video-no-overlay`}
-        style={{
-          minHeight: large ? "120px" : "80px",
-          maxHeight: large ? "300px" : "180px",
-          maxWidth: large ? "800px" : "400px",
-          border: "1px solid #444"
-        }}
-        onLoadStart={() => {
-          console.log(`Video load started: ${src}`);
-        }}
-        onLoadedData={() => {
-          console.log(`Video data loaded: ${src}`);
-        }}
-        onError={(e) => {
-          const error = e.currentTarget.error;
-          console.error(`Video error: ${src}`, e);
-          console.error(`Video error details:`, error);
-          if (error) {
-            console.error(`Video Error: ${error.message || 'Unknown error'} (Code: ${error.code})`);
-            console.error(`Error details: ${JSON.stringify({
-              code: error.code,
-              message: error.message,
-              networkState: e.currentTarget.networkState,
-              readyState: e.currentTarget.readyState
-            })}`);
-          }
-        }}
-        onCanPlay={() => {
-          console.log(`Video can play: ${src}`);
-        }}
-      >
-        <p>Your browser does not support the video tag.</p>
-      </video>
+    <div className={`${large ? "w-full h-full flex flex-col" : "max-w-2xl w-full"}`}>
+      <div className={`${large ? "flex flex-col h-full" : "bg-slate-800 rounded-lg border border-slate-700 overflow-hidden"}`}>
+        {!large && (
+          <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-700 bg-slate-800 flex-shrink-0">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-white">Player</h3>
+              <div className="text-slate-400">
+                <Play className="w-4 h-4" fill="currentColor" />
+              </div>
+            </div>
+          </div>
+        )}
+        
+        <div className={`${large ? "p-0 flex-1 flex flex-col" : "p-2 sm:p-3 lg:p-4 bg-slate-900"}`}>
+          {src ? (
+            <>
+              <video
+                key={`${src}|${cuts.length}|${JSON.stringify(cuts)}`}
+                ref={videoRef}
+                src={src}
+                playsInline
+                preload="metadata"
+                disablePictureInPicture
+                className={`w-full object-contain bg-black rounded video-no-overlay`}
+                style={{
+                  aspectRatio: "16 / 9",
+                  maxWidth: large ? "100%" : "320px",
+                  maxHeight: large ? "100%" : "180px",
+                  border: "1px solid #334155"
+                }}
+                onLoadStart={() => {
+                  console.log(`Video load started: ${src}`);
+                }}
+                onLoadedData={() => {
+                  console.log(`Video data loaded: ${src}`);
+                }}
+                onError={(e) => {
+                  const error = e.currentTarget.error;
+                  console.error(`Video error: ${src}`, e);
+                  console.error(`Video error details:`, error);
+                  if (error) {
+                    console.error(`Video Error: ${error.message || 'Unknown error'} (Code: ${error.code})`);
+                    console.error(`Error details: ${JSON.stringify({
+                      code: error.code,
+                      message: error.message,
+                      networkState: e.currentTarget.networkState,
+                      readyState: e.currentTarget.readyState
+                    })}`);
+                  }
+                }}
+                onCanPlay={() => {
+                  console.log(`Video can play: ${src}`);
+                }}
+              >
+                <p>Your browser does not support the video tag.</p>
+              </video>
+              
+              {/* Custom Video Controls */}
+              <div className={`${large ? "m-2 flex-shrink-0" : "mt-3"} flex items-center justify-center gap-2`}>
+                <button
+                  onClick={handleSeekBack}
+                  className="p-2 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                  title="Seek Backward 1s"
+                >
+                  <SkipBack className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleTogglePlay}
+                  className="p-2 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                  title={isPlaying ? "Pause" : "Play"}
+                >
+                  {isPlaying ? (
+                    <Pause className="w-4 h-4" />
+                  ) : (
+                    <Play className="w-4 h-4" />
+                  )}
+                </button>
+                <button
+                  onClick={handleSeekForward}
+                  className="p-2 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                  title="Seek Forward 1s"
+                >
+                  <SkipForward className="w-4 h-4" />
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Black Screen Placeholder */}
+              <div 
+                className="w-full object-contain bg-black rounded"
+                style={{
+                  aspectRatio: "16 / 9",
+                  maxWidth: large ? "100%" : "320px",
+                  maxHeight: large ? "100%" : "180px",
+                  border: "1px solid #334155"
+                }}
+              />
+              
+              {/* Disabled Video Controls */}
+              <div className={`${large ? "m-2 flex-shrink-0" : "mt-3"} flex items-center justify-center gap-2`}>
+                <button
+                  disabled
+                  className="p-2 text-slate-600 rounded-lg transition-colors cursor-not-allowed"
+                  title="No video loaded"
+                >
+                  <SkipBack className="w-4 h-4" />
+                </button>
+                <button
+                  disabled
+                  className="p-2 text-slate-600 rounded-lg transition-colors cursor-not-allowed"
+                  title="No video loaded"
+                >
+                  <Play className="w-4 h-4" />
+                </button>
+                <button
+                  disabled
+                  className="p-2 text-slate-600 rounded-lg transition-colors cursor-not-allowed"
+                  title="No video loaded"
+                >
+                  <SkipForward className="w-4 h-4" />
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 });

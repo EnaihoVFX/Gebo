@@ -14,13 +14,19 @@ interface VideoTimelineProps {
 }
 
 export function VideoTimeline({
-  peaks, duration, accepted, preview, filePath, width = 1100, height = 200, onSeek,
+  peaks, duration, accepted, preview, filePath, width, height, onSeek,
 }: VideoTimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [isGeneratingThumbnails, setIsGeneratingThumbnails] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [isHoveringRuler, setIsHoveringRuler] = useState(false);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [zoom, setZoom] = useState(1);
+
+  // Calculate responsive dimensions
+  const timelineWidth = width || containerSize.width || 800;
+  const timelineHeight = height || Math.max(180, Math.min(280, containerSize.width * 0.25)) || 250;
 
   // Generate thumbnails when file path changes
   useEffect(() => {
@@ -42,10 +48,10 @@ export function VideoTimeline({
 
   const samples = useMemo(() => {
     if (!peaks?.length) return [];
-    const out: number[] = new Array(width).fill(0);
-    const step = peaks.length / width;
+    const out: number[] = new Array(timelineWidth).fill(0);
+    const step = peaks.length / timelineWidth;
     let max = 1;
-    for (let x = 0; x < width; x++) {
+    for (let x = 0; x < timelineWidth; x++) {
       const start = Math.floor(x * step);
       const end = Math.min(peaks.length, Math.floor((x + 1) * step) + 1);
       let m = 0;
@@ -53,15 +59,36 @@ export function VideoTimeline({
       out[x] = m; if (m > max) max = m;
     }
     return out.map(v => v / max);
-  }, [peaks, width]);
+  }, [peaks, timelineWidth]);
 
   const thumbnailWidth = useMemo(() => {
-    return thumbnails.length > 0 ? width / thumbnails.length : 0;
-  }, [thumbnails.length, width]);
+    return thumbnails.length > 0 ? timelineWidth / thumbnails.length : 0;
+  }, [thumbnails.length, timelineWidth]);
+
+  // Resize observer to handle responsive sizing
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateSize = () => {
+      const rect = container.getBoundingClientRect();
+      setContainerSize({ width: rect.width, height: rect.height });
+    };
+
+    // Initial size
+    updateSize();
+
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || timelineWidth === 0 || timelineHeight === 0) return;
 
     // Prevent rendering issues by checking if canvas is visible
     const rect = canvas.getBoundingClientRect();
@@ -70,22 +97,22 @@ export function VideoTimeline({
     }
 
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = width + "px";
-    canvas.style.height = height + "px";
+    canvas.width = timelineWidth * dpr;
+    canvas.height = timelineHeight * dpr;
+    canvas.style.width = timelineWidth + "px";
+    canvas.style.height = timelineHeight + "px";
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // Clear canvas
-    ctx.fillStyle = "#0a0a0a";
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "#0a0a0a"; // editor-bg-canvas
+    ctx.fillRect(0, 0, timelineWidth, timelineHeight);
 
     // Draw thumbnails
     if (thumbnails.length > 0) {
-      const thumbnailHeight = height * 0.6; // 60% of timeline height for thumbnails
-      const waveformHeight = height * 0.4; // 40% for waveform
+      const thumbnailHeight = timelineHeight * 0.6; // 60% of timeline height for thumbnails
+      const waveformHeight = timelineHeight * 0.4; // 40% for waveform
       
       for (let i = 0; i < thumbnails.length; i++) {
         const x = i * thumbnailWidth;
@@ -98,11 +125,11 @@ export function VideoTimeline({
             }
           };
           img.onerror = () => {
-            console.warn(`Failed to load thumbnail ${i}`);
+            // Silently handle thumbnail loading errors
           };
           img.src = `data:image/png;base64,${thumbnails[i]}`;
         } catch (error) {
-          console.warn(`Error loading thumbnail ${i}:`, error);
+          // Silently handle thumbnail loading errors
         }
       }
 
@@ -111,17 +138,17 @@ export function VideoTimeline({
       const waveformHeight_px = waveformHeight;
       const mid = waveformY + waveformHeight_px / 2;
       
-      ctx.fillStyle = "#71717a";
+      ctx.fillStyle = "#71717a"; // editor-timeline-waveform
       for (let x = 0; x < samples.length; x++) {
         const h = samples[x] * (waveformHeight_px * 0.9) * 0.5;
         ctx.fillRect(x, mid - h, 1, h * 2);
       }
     } else {
       // Fallback: just draw waveform if no thumbnails
-      const mid = height / 2;
-      ctx.fillStyle = "#71717a";
+      const mid = timelineHeight / 2;
+      ctx.fillStyle = "#71717a"; // editor-timeline-waveform
       for (let x = 0; x < samples.length; x++) {
-        const h = samples[x] * (height * 0.9) * 0.5;
+        const h = samples[x] * (timelineHeight * 0.9) * 0.5;
         ctx.fillRect(x, mid - h, 1, h * 2);
       }
     }
@@ -131,48 +158,48 @@ export function VideoTimeline({
       if (!duration || !ranges.length) return;
       ctx.fillStyle = color;
       for (const r of ranges) {
-        const x1 = Math.max(0, Math.min(width, (r.start / duration) * width));
-        const x2 = Math.max(0, Math.min(width, (r.end / duration) * width));
-        ctx.fillRect(x1, 0, Math.max(1, x2 - x1), height);
+        const x1 = Math.max(0, Math.min(timelineWidth, (r.start / duration) * timelineWidth));
+        const x2 = Math.max(0, Math.min(timelineWidth, (r.end / duration) * timelineWidth));
+        ctx.fillRect(x1, 0, Math.max(1, x2 - x1), timelineHeight);
       }
     };
-    drawRanges(preview, "rgba(245, 158, 11, 0.35)"); // amber-500
-    drawRanges(accepted, "rgba(239, 68, 68, 0.35)");  // red-600
+    drawRanges(preview, "rgba(245, 158, 11, 0.35)"); // editor-timeline-cut-preview
+    drawRanges(accepted, "rgba(239, 68, 68, 0.35)");  // editor-timeline-cut-accepted
 
     // Draw current time indicator
     if (currentTime > 0) {
-      const x = (currentTime / duration) * width;
-      ctx.strokeStyle = "#00ff00";
+      const x = (currentTime / duration) * timelineWidth;
+      ctx.strokeStyle = "#00ff00"; // editor-timeline-indicator-current
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
+      ctx.lineTo(x, timelineHeight);
       ctx.stroke();
     }
 
     // Draw time markers
-    ctx.strokeStyle = "#404040";
+    ctx.strokeStyle = "#404040"; // editor-border-secondary
     ctx.lineWidth = 1;
     const timeInterval = duration / 10; // 10 time markers
     for (let i = 0; i <= 10; i++) {
       const time = i * timeInterval;
-      const x = (time / duration) * width;
+      const x = (time / duration) * timelineWidth;
       ctx.beginPath();
-      ctx.moveTo(x, height - 20);
-      ctx.lineTo(x, height);
+      ctx.moveTo(x, timelineHeight - 20);
+      ctx.lineTo(x, timelineHeight);
       ctx.stroke();
       
       // Draw time labels
-      ctx.fillStyle = "#888";
+      ctx.fillStyle = "#888"; // editor-text-muted
       ctx.font = "10px monospace";
-      ctx.fillText(formatTime(time), x + 2, height - 5);
+      ctx.fillText(formatTime(time), x + 2, timelineHeight - 5);
     }
 
     // Border
-    ctx.strokeStyle = "#27272a";
+    ctx.strokeStyle = "#27272a"; // editor-border-accent
     ctx.lineWidth = 1;
-    ctx.strokeRect(0, 0, width, height);
-  }, [samples, accepted, preview, duration, width, height, thumbnails, currentTime]);
+    ctx.strokeRect(0, 0, timelineWidth, timelineHeight);
+  }, [samples, accepted, preview, duration, timelineWidth, timelineHeight, thumbnails, currentTime]);
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -188,7 +215,7 @@ export function VideoTimeline({
     const t = (x / rect.width) * duration;
     
     // Only allow scrubbing in the ruler area (top 20% of timeline)
-    const rulerHeight = height * 0.2;
+    const rulerHeight = timelineHeight * 0.2;
     const isInRuler = y <= rulerHeight;
     
     if (isInRuler) {
@@ -205,10 +232,8 @@ export function VideoTimeline({
     const t = (x / rect.width) * duration;
     
     // Check if we're in the ruler area (top 20% of timeline)
-    const rulerHeight = height * 0.2;
+    const rulerHeight = timelineHeight * 0.2;
     const isInRuler = y <= rulerHeight;
-    
-    setIsHoveringRuler(isInRuler);
     
     if (isInRuler) {
       setCurrentTime(t);
@@ -222,41 +247,21 @@ export function VideoTimeline({
   };
 
   const handleMouseLeave = () => {
-    setIsHoveringRuler(false);
+    // Clean up any hover state if needed
   };
 
   return (
-    <div className="rounded bg-zinc-950 border border-zinc-800 p-2 overflow-x-auto overflow-y-hidden">
-      <div className="text-xs mb-2 text-zinc-400 flex items-center justify-between">
-        <span>Video Timeline</span>
-        {isGeneratingThumbnails && (
-          <span className="text-amber-400">Generating thumbnails...</span>
-        )}
-        <span className="text-zinc-500">
-          {formatTime(currentTime)} / {formatTime(duration)}
-        </span>
-      </div>
-      
-      <div style={{ height: `${height}px` }}>
+    <div ref={containerRef} className="w-full">
+      <div style={{ height: `${timelineHeight}px` }}>
         <canvas 
           ref={canvasRef} 
           onClick={handleClick}
-           onMouseMove={handleMouseMove}
-           onMouseLeave={handleMouseLeave}
-           onWheel={handleWheel}
-          className="cursor-pointer hover:opacity-90 transition-opacity block"
-          style={{ height: `${height}px`, maxHeight: `${height}px` }}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+          onWheel={handleWheel}
+          className="cursor-pointer hover:opacity-90 transition-opacity block w-full rounded border border-editor-border-primary"
+          style={{ height: `${timelineHeight}px`, maxHeight: `${timelineHeight}px` }}
         />
-      </div>
-      
-      <div className="mt-2 text-[11px] text-zinc-400 flex gap-3">
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "rgba(239,68,68,0.8)" }}></span> Accepted
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "rgba(245,158,11,0.8)" }}></span> Preview
-        </span>
-        <span className="ml-auto">Click to seek • Hover to preview</span>
       </div>
     </div>
   );

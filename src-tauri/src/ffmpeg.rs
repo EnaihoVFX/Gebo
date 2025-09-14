@@ -62,26 +62,37 @@ pub fn ffprobe(input: &str) -> Result<Probe> {
   let empty_vec = vec![];
   let streams = json["streams"].as_array().unwrap_or(&empty_vec);
 
-  let v = streams
-    .iter()
-    .find(|s| s["codec_type"] == "video")
-    .ok_or_else(|| anyhow!("no video stream"))?;
+  // Find video and audio streams (video stream is optional for audio-only files)
+  let v = streams.iter().find(|s| s["codec_type"] == "video");
   let a = streams
     .iter()
     .find(|s| s["codec_type"] == "audio")
     .ok_or_else(|| anyhow!("no audio stream"))?;
 
-  // fps as num/den
-  let r = v["r_frame_rate"].as_str().unwrap_or("30/1");
-  let mut parts = r.split('/');
-  let num: f64 = parts.next().unwrap_or("30").parse().unwrap_or(30.0);
-  let den: f64 = parts.next().unwrap_or("1").parse().unwrap_or(1.0);
-  let fps = if den > 0.0 { num / den } else { 30.0 };
+  // Handle video stream (if present)
+  let (width, height, fps, v_codec) = if let Some(v) = v {
+    // fps as num/den
+    let r = v["r_frame_rate"].as_str().unwrap_or("30/1");
+    let mut parts = r.split('/');
+    let num: f64 = parts.next().unwrap_or("30").parse().unwrap_or(30.0);
+    let den: f64 = parts.next().unwrap_or("1").parse().unwrap_or(1.0);
+    let fps = if den > 0.0 { num / den } else { 30.0 };
+    
+    (
+      v["width"].as_u64().unwrap_or(1920) as u32,
+      v["height"].as_u64().unwrap_or(1080) as u32,
+      fps,
+      v["codec_name"].as_str().unwrap_or("h264").to_string()
+    )
+  } else {
+    // Audio-only file
+    (0, 0, 0.0, "none".to_string())
+  };
 
   Ok(Probe {
     duration,
-    width: v["width"].as_u64().unwrap_or(1920) as u32,
-    height: v["height"].as_u64().unwrap_or(1080) as u32,
+    width,
+    height,
     fps,
     audio_rate: a["sample_rate"]
       .as_str()
@@ -89,7 +100,7 @@ pub fn ffprobe(input: &str) -> Result<Probe> {
       .parse()
       .unwrap_or(48000),
     audio_channels: a["channels"].as_u64().unwrap_or(2) as u8,
-    v_codec: v["codec_name"].as_str().unwrap_or("h264").to_string(),
+    v_codec,
     a_codec: a["codec_name"].as_str().unwrap_or("aac").to_string(),
     container,
   })
@@ -343,6 +354,7 @@ pub fn make_preview_proxy(input: &str, max_w: Option<u32>) -> Result<String> {
 
 /// Generate video thumbnails at regular intervals for timeline scrubbing.
 /// Returns a vector of base64-encoded thumbnail images.
+/// For audio files, returns an empty vector.
 pub fn generate_thumbnails(input: &str, count: usize, width: u32) -> Result<Vec<String>> {
   if !ffmpeg_exists() {
     return Err(anyhow!("ffmpeg/ffprobe not found on PATH"));
@@ -352,7 +364,13 @@ pub fn generate_thumbnails(input: &str, count: usize, width: u32) -> Result<Vec<
   let duration = probe.duration;
   
   if duration <= 0.0 {
-    return Err(anyhow!("Invalid video duration"));
+    return Err(anyhow!("Invalid media duration"));
+  }
+
+  // Check if this is a video file (has video stream)
+  if probe.width == 0 || probe.height == 0 {
+    // Audio-only file, return empty thumbnails
+    return Ok(vec![]);
   }
 
   let mut thumbnails = Vec::new();

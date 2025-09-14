@@ -1,6 +1,9 @@
-import { useRef, useEffect, useMemo, useState, useCallback } from "react";
-import type { Range } from "../../../types";
+import { useRef, useEffect, useMemo, useState, useCallback, forwardRef, useImperativeHandle } from "react";
+import { flushSync } from "react-dom";
+import { Scissors, Trash2 } from "lucide-react";
+import type { Range, Track, Clip, MediaFile } from "../../../types";
 import { generateThumbnails } from "../../../lib/ffmpeg";
+import { TrackControls } from "./TrackControls";
 
 interface AdvancedTimelineProps {
   peaks: number[];
@@ -8,16 +11,41 @@ interface AdvancedTimelineProps {
   accepted: Range[];
   preview: Range[];
   filePath: string;
+  tracks: Track[];
+  clips: Clip[];
+  mediaFiles: MediaFile[];
   width?: number;
   height?: number;
   onSeek?: (t: number) => void;
   onAddCut?: (range: Range) => void;
   onRemoveCut?: (index: number) => void;
+  onUpdateTrack?: (trackId: string, updates: Partial<Track>) => void;
+  onDeleteTrack?: (trackId: string) => void;
+  onAddTrack?: (type: Track['type']) => void;
+  // Cut management props
+  onMarkIn?: () => void;
+  onClearAllCuts?: () => void;
+  // Drag and drop props
+  onDropMedia?: (mediaFile: any, trackId: string, offset: number, event?: React.DragEvent) => void;
+  // Clip management props
+  onDeleteClip?: (clipId: string) => void;
 }
 
-export function AdvancedTimeline({
-  peaks, duration, accepted, preview, filePath, width = 1100, height = 250, onSeek, onAddCut, onRemoveCut,
-}: AdvancedTimelineProps) {
+export interface AdvancedTimelineHandle {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetZoom: () => void;
+  isZooming: boolean;
+}
+
+export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimelineProps>(({
+  peaks, duration, accepted, preview, filePath, tracks, clips, mediaFiles, width, height, onSeek, onAddCut, onRemoveCut, onUpdateTrack, onDeleteTrack, onMarkIn, onClearAllCuts, onDropMedia, onDeleteClip,
+}, ref) => {
+  // Debug: Log when component renders
+  console.log("AdvancedTimeline rendering with", clips.length, "clips and", tracks.length, "tracks");
+  console.log("Preview cuts:", preview);
+  console.log("Accepted cuts:", accepted);
+  
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [thumbnails, setThumbnails] = useState<string[]>([]);
@@ -35,9 +63,23 @@ export function AdvancedTimeline({
   const [selectionEnd, setSelectionEnd] = useState<number | null>(null);
   const [showSelectionPreview, setShowSelectionPreview] = useState(false);
   const [hoveredCutIndex, setHoveredCutIndex] = useState<number | null>(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [hoveredClipId, setHoveredClipId] = useState<string | null>(null);
+  const [forceRedraw, setForceRedraw] = useState(0);
   const zoomTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const zoomAnimationRef = useRef<number | null>(null);
   const thumbnailCache = useRef<Map<string, HTMLImageElement>>(new Map());
+
+  // Calculate responsive dimensions
+  const timelineWidth = width || containerSize.width || 800;
+  // Calculate track height to match actual track content height - keep tracks compact
+  const timeRulerHeight = 30; // Keep original time ruler height
+  const trackAreaHeight = Math.max(60, Math.min(80, containerSize.width * 0.08)); // Keep original track height
+  const trackHeight = trackAreaHeight; // Track control height matches track content height
+  const tracksHeight = tracks.length * trackHeight;
+  const timelineHeight = height || timeRulerHeight + tracksHeight + 200 || 500; // Only increase overall timeline height
 
   // Generate thumbnails when file path changes
   useEffect(() => {
@@ -62,12 +104,33 @@ export function AdvancedTimeline({
       .finally(() => setIsGeneratingThumbnails(false));
   }, [filePath, duration]);
 
+  // Resize observer to handle responsive sizing
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateSize = () => {
+      const rect = container.getBoundingClientRect();
+      setContainerSize({ width: rect.width, height: rect.height });
+    };
+
+    // Initial size
+    updateSize();
+
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
   const samples = useMemo(() => {
     if (!peaks?.length) return [];
     
     // Safety checks for zoom values
     const safeZoom = Math.max(0.1, Math.min(10, isFinite(zoom) ? zoom : 1));
-    const sampleWidth = Math.floor(width * safeZoom);
+    const sampleWidth = Math.floor(timelineWidth * safeZoom);
     
     // Prevent excessive memory usage
     if (sampleWidth > 50000) {
@@ -91,7 +154,7 @@ export function AdvancedTimeline({
     }
     
     return out.map(v => max > 0 ? v / max : 0);
-  }, [peaks, width, zoom]);
+  }, [peaks, timelineWidth, zoom]);
 
   // Calculate thumbnail dimensions and segment information - simplified and robust
   const thumbnailDimensions = useMemo(() => {
@@ -109,11 +172,11 @@ export function AdvancedTimeline({
     
     // Calculate segment information
     const segmentDuration = duration / thumbnails.length; // Duration each thumbnail represents
-    const totalTimelineWidth = width * safeZoom; // Total visual width at current zoom
+    const totalTimelineWidth = timelineWidth * safeZoom; // Total visual width at current zoom
     const segmentWidth = totalTimelineWidth / thumbnails.length; // Visual width of each segment
     
     // Fixed thumbnail dimensions - consistent height, width based on segment
-    const thumbnailHeight = height * 0.4; // 40% of timeline height
+    const thumbnailHeight = timelineHeight * 0.4; // 40% of timeline height
     const thumbnailWidth = Math.max(20, segmentWidth * 0.8); // 80% of segment width, minimum 20px
     
     return {
@@ -124,7 +187,7 @@ export function AdvancedTimeline({
       segmentDuration: segmentDuration,
       segmentWidth: segmentWidth
     };
-  }, [thumbnails.length, width, height, zoom, duration]);
+  }, [thumbnails.length, timelineWidth, timelineHeight, zoom, duration]);
 
   const formatTime = useCallback((seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -132,6 +195,49 @@ export function AdvancedTimeline({
     const ms = Math.floor((seconds % 1) * 100);
     return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
   }, []);
+
+  // Calculate effective duration based on main video or clips
+  const getEffectiveDuration = useCallback(() => {
+    if (duration && duration > 0) {
+      return duration;
+    }
+    
+    // If no main video, calculate duration based on clips
+    if (clips.length > 0) {
+      const maxEndTime = Math.max(...clips.map(clip => clip.offset + (clip.endTime - clip.startTime)));
+      return Math.max(60, maxEndTime + 10); // Add 10 seconds buffer, minimum 60 seconds
+    }
+    
+    return 60; // Default fallback
+  }, [duration, clips]);
+
+  // Helper function to find clip at coordinates with tolerance
+  const findClipAtPosition = useCallback((x: number, y: number, tolerance: number = 5) => {
+    const effectiveDuration = getEffectiveDuration();
+    
+    // Don't detect clips in the ruler area (top time ruler)
+    if (y <= timeRulerHeight) {
+      return null;
+    }
+    
+    for (const clip of clips) {
+      const clipStartX = (clip.offset / effectiveDuration) * (timelineWidth * zoom) - pan;
+      const clipEndX = ((clip.offset + (clip.endTime - clip.startTime)) / effectiveDuration) * (timelineWidth * zoom) - pan;
+      
+      // Only check within the actual clip area (track area only, not ruler)
+      const expandedStartX = clipStartX - tolerance;
+      const expandedEndX = clipEndX + tolerance;
+      const expandedTopY = timeRulerHeight + tolerance; // Start below the ruler
+      const expandedBottomY = timeRulerHeight + trackAreaHeight - tolerance;
+      
+      // Check if click is within expanded bounds
+      if (x >= expandedStartX && x <= expandedEndX && y >= expandedTopY && y <= expandedBottomY) {
+        return clip;
+      }
+    }
+    
+    return null;
+  }, [clips, getEffectiveDuration, timelineWidth, zoom, pan, timeRulerHeight, trackAreaHeight]);
 
   // Get cached thumbnail or create new one
   const getCachedThumbnail = useCallback((base64Data: string, index: number): Promise<HTMLImageElement> => {
@@ -268,8 +374,8 @@ export function AdvancedTimeline({
       const clampedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoom));
       
       // Validate width is available
-      if (!width || width <= 0) {
-        console.warn('Invalid width for zoom calculation:', width);
+      if (!timelineWidth || timelineWidth <= 0) {
+        console.warn('Invalid width for zoom calculation:', timelineWidth);
         return;
       }
 
@@ -280,7 +386,7 @@ export function AdvancedTimeline({
       if (centerX !== undefined && isFinite(centerX)) {
         // Zoom towards the center point
         const zoomRatio = clampedZoom / zoom;
-        newPan = centerX * zoomRatio - width / 2;
+        newPan = centerX * zoomRatio - timelineWidth / 2;
       } else {
         // Maintain current view position proportionally
         const zoomRatio = clampedZoom / zoom;
@@ -319,7 +425,44 @@ export function AdvancedTimeline({
       setPan(0);
       setIsZooming(false);
     }
-  }, [zoom, pan, width, animateZoom]);
+  }, [zoom, pan, timelineWidth, animateZoom]);
+
+  // Expose zoom functions to parent component
+  const handleZoomIn = useCallback(() => {
+    try {
+      const targetZoom = Math.min(10, zoom * 1.15);
+      safeZoom(targetZoom, undefined, true);
+    } catch (error) {
+      console.error('Error zooming in:', error);
+    }
+  }, [zoom, safeZoom]);
+
+  const handleZoomOut = useCallback(() => {
+    try {
+      const targetZoom = zoom / 1.15;
+      safeZoom(targetZoom, undefined, true);
+    } catch (error) {
+      console.error('Error zooming out:', error);
+    }
+  }, [zoom, safeZoom]);
+
+  const handleResetZoom = useCallback(() => {
+    try {
+      safeZoom(1, undefined, true);
+    } catch (error) {
+      console.error('Error resetting zoom:', error);
+      setZoom(1);
+      setPan(0);
+    }
+  }, [safeZoom]);
+
+  // Expose zoom functions to parent via ref
+  useImperativeHandle(ref, () => ({
+    zoomIn: handleZoomIn,
+    zoomOut: handleZoomOut,
+    resetZoom: handleResetZoom,
+    isZooming: isZooming
+  }), [handleZoomIn, handleZoomOut, handleResetZoom, isZooming]);
 
   const drawTimeline = useCallback(() => {
     const canvas = canvasRef.current;
@@ -338,52 +481,62 @@ export function AdvancedTimeline({
     }
 
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = width + "px";
-    canvas.style.height = height + "px";
+    canvas.width = timelineWidth * dpr;
+    canvas.height = timelineHeight * dpr;
+    canvas.style.width = timelineWidth + "px";
+    canvas.style.height = timelineHeight + "px";
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // Clear canvas
-    ctx.fillStyle = "#0a0a0a";
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "#0a0a0a"; // editor.timeline.canvas equivalent
+    ctx.fillRect(0, 0, timelineWidth, timelineHeight);
 
     // Calculate visible area based on zoom and pan (for reference)
     // const visibleStart = Math.max(0, pan);
-    // const visibleEnd = Math.min(width * zoom, pan + width);
+    // const visibleEnd = Math.min(timelineWidth * zoom, pan + timelineWidth);
 
     // Draw time ruler at the top (infinite across entire timeline)
-    const timeRulerHeight = height * 0.15; // 15% for time ruler at top
-    const waveformHeight = height * 0.3; // 30% for waveform
-    const thumbnailAreaHeight = height - timeRulerHeight - waveformHeight;
+    // Use the same timeRulerHeight and trackAreaHeight as calculated above
+    const waveformHeight = trackAreaHeight * 0.3; // 30% of track area for waveform
+    const thumbnailAreaHeight = trackAreaHeight - waveformHeight; // Remaining for thumbnails
     
-     // Draw infinite time ruler at the top
-     // Add subtle background to indicate infinite timeline and scrubbing area
+     // Draw enhanced time ruler at the top with gradient background
+     // Create gradient background for better visual appeal
+     const gradient = ctx.createLinearGradient(0, 0, 0, timeRulerHeight);
      if (isHoveringRuler || isScrubbing) {
-       ctx.fillStyle = "rgba(100, 150, 255, 0.1)"; // Blue tint when hovering/scrubbing
+       gradient.addColorStop(0, "rgba(59, 130, 246, 0.15)"); // Blue gradient top
+       gradient.addColorStop(1, "rgba(59, 130, 246, 0.05)"); // Blue gradient bottom
      } else {
-       ctx.fillStyle = "rgba(64, 64, 64, 0.2)"; // Default gray
+       gradient.addColorStop(0, "rgba(30, 30, 30, 0.4)"); // Dark gradient top
+       gradient.addColorStop(1, "rgba(20, 20, 20, 0.2)"); // Dark gradient bottom
      }
-     ctx.fillRect(0, 0, width, timeRulerHeight);
+     ctx.fillStyle = gradient;
+     ctx.fillRect(0, 0, timelineWidth, timeRulerHeight);
      
-     // Add a subtle border to indicate the scrubbing area
-     ctx.strokeStyle = isHoveringRuler || isScrubbing ? "rgba(100, 150, 255, 0.5)" : "rgba(100, 100, 100, 0.3)";
-     ctx.lineWidth = 1;
-     ctx.strokeRect(0, 0, width, timeRulerHeight);
+     // Add enhanced border with better styling
+     ctx.strokeStyle = isHoveringRuler || isScrubbing ? "rgba(59, 130, 246, 0.6)" : "rgba(75, 85, 99, 0.4)";
+     ctx.lineWidth = isHoveringRuler || isScrubbing ? 1.5 : 1;
+     ctx.strokeRect(0, 0, timelineWidth, timeRulerHeight);
+     
+     // Add subtle inner highlight for depth
+     ctx.strokeStyle = isHoveringRuler || isScrubbing ? "rgba(147, 197, 253, 0.3)" : "rgba(107, 114, 128, 0.2)";
+     ctx.lineWidth = 0.5;
+     ctx.strokeRect(0.5, 0.5, timelineWidth - 1, timeRulerHeight - 1);
     
-    ctx.strokeStyle = "#404040";
+    ctx.strokeStyle = "#404040"; // editor-border-secondary
     ctx.lineWidth = 1;
-    ctx.fillStyle = "#888";
+    ctx.fillStyle = "#888"; // editor-text-muted
     ctx.font = "10px monospace";
     
     // Calculate time interval based on zoom level for better readability
     // More responsive to zoom - smaller intervals when zoomed in
-    if (!duration || duration <= 0) return; // Safety check
+    // Use effective duration based on main video or clips
+    const effectiveDuration = getEffectiveDuration();
     
-    const pixelsPerSecond = (width * zoom) / duration;
+    const pixelsPerSecond = (timelineWidth * zoom) / effectiveDuration;
     let timeInterval;
     
     if (pixelsPerSecond > 100) {
@@ -403,8 +556,8 @@ export function AdvancedTimeline({
     }
     
     // Calculate visible time range for performance
-    const visibleStartTime = (pan / (width * zoom)) * duration;
-    const visibleEndTime = ((pan + width) / (width * zoom)) * duration;
+    const visibleStartTime = (pan / (timelineWidth * zoom)) * effectiveDuration;
+    const visibleEndTime = ((pan + timelineWidth) / (timelineWidth * zoom)) * effectiveDuration;
     
     // Extend range beyond visible area for infinite timeline (no negative times)
     const extendedStartTime = Math.max(0, visibleStartTime - timeInterval * 5);
@@ -413,37 +566,75 @@ export function AdvancedTimeline({
     // Find the first marker time that's >= extendedStartTime
     const firstMarkerTime = Math.floor(extendedStartTime / timeInterval) * timeInterval;
     
-    // Draw markers in the extended visible range (infinite beyond video duration)
+    // Draw enhanced markers in the extended visible range (infinite beyond video duration)
     for (let time = firstMarkerTime; time <= extendedEndTime; time += timeInterval) {
       // Calculate x position - this allows times beyond video duration
-      const x = (time / duration) * (width * zoom) - pan;
+      const x = (time / effectiveDuration) * (timelineWidth * zoom) - pan;
       
       // Only draw if marker is in extended visible range to prevent lag
-      if (x >= -100 && x < width + 100) {
+      if (x >= -100 && x < timelineWidth + 100) {
         // Determine if this is a major marker (every 5th marker, or at 0)
         const majorInterval = timeInterval * 5;
         const isMajorMarker = Math.abs(time % majorInterval) < 0.001 || Math.abs(time) < 0.001;
         
-        // Draw markers across entire timeline width (infinite)
-        ctx.strokeStyle = isMajorMarker ? "#666" : "#444";
-        ctx.lineWidth = isMajorMarker ? 1 : 0.5;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, timeRulerHeight);
-        ctx.stroke();
-        
-        // Only draw text for major markers and if it's in the visible area
-        if (isMajorMarker && x >= 0 && x < width - 50) { // Leave some margin for text
-          ctx.fillStyle = "#888";
-          ctx.fillText(formatTime(time), x + 2, timeRulerHeight - 2);
+        // Enhanced marker styling with better visual hierarchy
+        if (isMajorMarker) {
+          // Major markers - thicker, more prominent
+          ctx.strokeStyle = isHoveringRuler || isScrubbing ? "#93c5fd" : "#9ca3af"; // Light blue when active, gray otherwise
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, timeRulerHeight);
+          ctx.stroke();
+          
+          // Add subtle shadow effect for depth
+          ctx.strokeStyle = "rgba(0, 0, 0, 0.3)";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(x + 0.5, 0.5);
+          ctx.lineTo(x + 0.5, timeRulerHeight + 0.5);
+          ctx.stroke();
+          
+          // Draw text for major markers with better typography
+          if (x >= 0 && x < timelineWidth - 60) { // Leave margin for text
+            ctx.fillStyle = isHoveringRuler || isScrubbing ? "#dbeafe" : "#e5e7eb"; // Light text when active
+            ctx.font = "11px 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace";
+            ctx.textAlign = "left";
+            
+            // Add text shadow for better readability
+            ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+            ctx.fillText(formatTime(time), x + 3, timeRulerHeight - 1);
+            
+            // Draw the actual text
+            ctx.fillStyle = isHoveringRuler || isScrubbing ? "#dbeafe" : "#e5e7eb";
+            ctx.fillText(formatTime(time), x + 2, timeRulerHeight - 2);
+          }
+        } else {
+          // Minor markers - thinner, less prominent
+          ctx.strokeStyle = isHoveringRuler || isScrubbing ? "rgba(147, 197, 253, 0.6)" : "rgba(107, 114, 128, 0.4)";
+          ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          ctx.moveTo(x, timeRulerHeight * 0.3); // Start from 30% height
+          ctx.lineTo(x, timeRulerHeight);
+          ctx.stroke();
         }
       }
     }
 
-    // Draw thumbnails - positioned by actual time segments
+
+    // Draw thumbnails container background
     if (thumbnails.length > 0) {
       const { height: thumbHeight } = thumbnailDimensions;
       const y = timeRulerHeight + Math.max(0, (thumbnailAreaHeight - thumbHeight) / 2);
+      
+      // Draw thumbnail container background
+      ctx.fillStyle = "#1e293b"; // slate-800
+      ctx.fillRect(0, timeRulerHeight, timelineWidth, thumbnailAreaHeight);
+      
+      // Draw thumbnail container border
+      ctx.strokeStyle = "#334155"; // slate-700
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0, timeRulerHeight, timelineWidth, thumbnailAreaHeight);
       
       // Draw all thumbnails positioned by their actual time segments
       for (let i = 0; i < thumbnails.length; i++) {
@@ -452,13 +643,13 @@ export function AdvancedTimeline({
         const segmentEndTime = ((i + 1) / thumbnails.length) * duration;
         
         // Convert time positions to pixel positions on the timeline
-        const timelineWidth = width * zoom;
-        const segmentStartX = (segmentStartTime / duration) * timelineWidth - pan;
-        const segmentEndX = (segmentEndTime / duration) * timelineWidth - pan;
+        const totalTimelineWidth = timelineWidth * zoom;
+        const segmentStartX = (segmentStartTime / duration) * totalTimelineWidth - pan;
+        const segmentEndX = (segmentEndTime / duration) * totalTimelineWidth - pan;
         const segmentPixelWidth = segmentEndX - segmentStartX;
         
         // Only draw if thumbnail is visible
-        if (segmentEndX > 0 && segmentStartX < width) {
+        if (segmentEndX > 0 && segmentStartX < timelineWidth) {
           // Use cached thumbnail to prevent flashing
           getCachedThumbnail(thumbnails[i], i)
             .then(img => {
@@ -482,13 +673,13 @@ export function AdvancedTimeline({
                 );
                 
                 // Add border around the segment
-                ctx.strokeStyle = "#404040";
+                ctx.strokeStyle = "#404040"; // editor-border-secondary
                 ctx.lineWidth = 1;
                 ctx.strokeRect(segmentStartX, y, segmentPixelWidth, thumbnailHeight);
                 
                 // Add debug info
                 if (segmentPixelWidth > 30) {
-                  ctx.fillStyle = "#fff";
+                  ctx.fillStyle = "#fff"; // editor-text-primary
                   ctx.font = "8px monospace";
                   ctx.fillText(`${i}`, segmentStartX + 2, y + 8);
                   if (segmentPixelWidth > 50) {
@@ -508,29 +699,50 @@ export function AdvancedTimeline({
         }
       }
 
-      // Draw waveform below thumbnails
+      // Draw waveform container below thumbnails
       const waveformY = timeRulerHeight + thumbnailAreaHeight;
       const waveformHeight_px = waveformHeight;
       const mid = waveformY + waveformHeight_px / 2;
       
-      ctx.fillStyle = "#71717a";
+      // Draw waveform container background
+      ctx.fillStyle = "#0f172a"; // slate-900
+      ctx.fillRect(0, waveformY, timelineWidth, waveformHeight_px);
+      
+      // Draw waveform container border
+      ctx.strokeStyle = "#334155"; // slate-700
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0, waveformY, timelineWidth, waveformHeight_px);
+      
+      // Draw waveform inside container
+      ctx.fillStyle = "#71717a"; // editor-timeline-waveform
       for (let x = 0; x < samples.length; x++) {
         const canvasX = x - pan;
-        if (canvasX >= 0 && canvasX < width) {
+        if (canvasX >= 0 && canvasX < timelineWidth) {
           const h = samples[x] * (waveformHeight_px * 0.9) * 0.5;
           ctx.fillRect(canvasX, mid - h, 1, h * 2);
         }
       }
 
     } else {
-      // Fallback: just draw waveform if no thumbnails
+      // Fallback: just draw waveform container if no thumbnails
       const waveformY = timeRulerHeight;
-      const waveformHeight_px = height - timeRulerHeight;
+      const waveformHeight_px = timelineHeight - timeRulerHeight;
       const mid = waveformY + waveformHeight_px / 2;
-      ctx.fillStyle = "#71717a";
+      
+      // Draw waveform container background
+      ctx.fillStyle = "#0f172a"; // slate-900
+      ctx.fillRect(0, waveformY, timelineWidth, waveformHeight_px);
+      
+      // Draw waveform container border
+      ctx.strokeStyle = "#334155"; // slate-700
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0, waveformY, timelineWidth, waveformHeight_px);
+      
+      // Draw waveform inside container
+      ctx.fillStyle = "#71717a"; // editor-timeline-waveform
       for (let x = 0; x < samples.length; x++) {
         const canvasX = x - pan;
-        if (canvasX >= 0 && canvasX < width) {
+        if (canvasX >= 0 && canvasX < timelineWidth) {
           const h = samples[x] * (waveformHeight_px * 0.9) * 0.5;
           ctx.fillRect(canvasX, mid - h, 1, h * 2);
         }
@@ -539,14 +751,14 @@ export function AdvancedTimeline({
 
     // Draw cut overlays (cover entire timeline height)
     const drawRanges = (ranges: Range[], color: string, isHoverable: boolean = false) => {
-      if (!duration || !ranges.length) return;
+      if (!ranges.length) return;
       
       for (let i = 0; i < ranges.length; i++) {
         const r = ranges[i];
-        // Only draw cuts within the video duration
-        if (r.start >= 0 && r.end <= duration) {
-          const x1 = Math.max(0, Math.min(width, (r.start / duration) * (width * zoom) - pan));
-          const x2 = Math.max(0, Math.min(width, (r.end / duration) * (width * zoom) - pan));
+        // Only draw cuts within the effective duration
+        if (r.start >= 0 && r.end <= effectiveDuration) {
+          const x1 = Math.max(0, Math.min(timelineWidth, (r.start / effectiveDuration) * (timelineWidth * zoom) - pan));
+          const x2 = Math.max(0, Math.min(timelineWidth, (r.end / effectiveDuration) * (timelineWidth * zoom) - pan));
           const cutWidth = Math.max(1, x2 - x1);
           
           // Different opacity for hovered cuts
@@ -554,13 +766,13 @@ export function AdvancedTimeline({
           const alpha = isHovered ? 0.6 : 0.35;
           
           ctx.fillStyle = color.replace('0.35', alpha.toString());
-          ctx.fillRect(x1, 0, cutWidth, height);
+          ctx.fillRect(x1, 0, cutWidth, timelineHeight);
           
           // Add hover indicator
           if (isHovered) {
             ctx.strokeStyle = "#ffffff";
             ctx.lineWidth = 2;
-            ctx.strokeRect(x1, 0, cutWidth, height);
+            ctx.strokeRect(x1, 0, cutWidth, timelineHeight);
           }
           
           // Add cut info for accepted cuts
@@ -573,27 +785,27 @@ export function AdvancedTimeline({
         }
       }
     };
-    drawRanges(preview, "rgba(245, 158, 11, 0.35)", false); // amber-500
-    drawRanges(accepted, "rgba(239, 68, 68, 0.35)", true);  // red-600 - hoverable
+    drawRanges(preview, "rgba(245, 158, 11, 0.35)", false); // editor-timeline-cut-preview
+    drawRanges(accepted, "rgba(239, 68, 68, 0.35)", true);  // editor-timeline-cut-accepted - hoverable
 
     // Draw manual selection overlay
-    if (showSelectionPreview && selectionStart !== null && selectionEnd !== null && duration) {
-      const startX = (selectionStart / duration) * (width * zoom) - pan;
-      const endX = (selectionEnd / duration) * (width * zoom) - pan;
+    if (showSelectionPreview && selectionStart !== null && selectionEnd !== null) {
+      const startX = (selectionStart / effectiveDuration) * (timelineWidth * zoom) - pan;
+      const endX = (selectionEnd / effectiveDuration) * (timelineWidth * zoom) - pan;
       const selectionWidth = Math.max(1, endX - startX);
       
       // Draw selection overlay
-      ctx.fillStyle = "rgba(59, 130, 246, 0.3)"; // blue-500
-      ctx.fillRect(startX, 0, selectionWidth, height);
+      ctx.fillStyle = "rgba(59, 130, 246, 0.3)"; // editor-timeline-cut-selection
+      ctx.fillRect(startX, 0, selectionWidth, timelineHeight);
       
       // Draw selection border
-      ctx.strokeStyle = "#3b82f6";
+      ctx.strokeStyle = "#3b82f6"; // editor-status-info
       ctx.lineWidth = 2;
-      ctx.strokeRect(startX, 0, selectionWidth, height);
+      ctx.strokeRect(startX, 0, selectionWidth, timelineHeight);
       
       // Add selection info
       if (selectionWidth > 60) {
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = "#ffffff"; // editor-text-primary
         ctx.font = "11px monospace";
         ctx.textAlign = "center";
         const centerX = startX + selectionWidth / 2;
@@ -604,40 +816,391 @@ export function AdvancedTimeline({
       }
     }
 
-    // Draw current time indicator (spans full height)
+    // Draw enhanced current time indicator (spans full height)
     if (currentTime >= 0) {
-      const x = (currentTime / duration) * (width * zoom) - pan;
-      if (x >= 0 && x < width) {
-        // Different colors for scrubbing vs normal playback
-        ctx.strokeStyle = isScrubbing ? "#ff6b35" : "#00ff00";
-        ctx.lineWidth = isScrubbing ? 3 : 2;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-        ctx.stroke();
-        
-        // Add scrub indicator circle at the top
+      const x = (currentTime / effectiveDuration) * (timelineWidth * zoom) - pan;
+      if (x >= 0 && x < timelineWidth) {
+        // Enhanced scrubbing vs normal playback indicators
         if (isScrubbing) {
-          ctx.fillStyle = "#ff6b35";
+          // Scrubbing mode - more prominent with glow effect
+          // Draw glow effect
+          const glowGradient = ctx.createRadialGradient(x, timeRulerHeight / 2, 0, x, timeRulerHeight / 2, 20);
+          glowGradient.addColorStop(0, "rgba(255, 107, 53, 0.3)");
+          glowGradient.addColorStop(0.5, "rgba(255, 107, 53, 0.1)");
+          glowGradient.addColorStop(1, "rgba(255, 107, 53, 0)");
+          ctx.fillStyle = glowGradient;
+          ctx.fillRect(x - 20, 0, 40, timeRulerHeight);
+          
+          // Main scrubbing line with shadow
+          ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
+          ctx.lineWidth = 4;
           ctx.beginPath();
-          ctx.arc(x, 8, 6, 0, 2 * Math.PI);
+          ctx.moveTo(x + 1, 0);
+          ctx.lineTo(x + 1, timelineHeight);
+          ctx.stroke();
+          
+          ctx.strokeStyle = "#ff6b35"; // Bright orange for scrubbing
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, timelineHeight);
+          ctx.stroke();
+          
+          // Enhanced scrub indicator circle with gradient
+          const circleGradient = ctx.createRadialGradient(x, 8, 0, x, 8, 8);
+          circleGradient.addColorStop(0, "#ff8c5a");
+          circleGradient.addColorStop(1, "#ff6b35");
+          ctx.fillStyle = circleGradient;
+          ctx.beginPath();
+          ctx.arc(x, 8, 8, 0, 2 * Math.PI);
           ctx.fill();
           
-          // Add time label above the scrub cursor
-          ctx.fillStyle = "#ff6b35";
-          ctx.font = "12px monospace";
+          // Add white highlight to circle
+          ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+          ctx.beginPath();
+          ctx.arc(x - 2, 6, 3, 0, 2 * Math.PI);
+          ctx.fill();
+          
+          // Enhanced time label with background
+          const timeText = formatTime(currentTime);
+          ctx.font = "12px 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace";
           ctx.textAlign = "center";
-          ctx.fillText(formatTime(currentTime), x, 20);
+          
+          // Draw background for time label
+          const textMetrics = ctx.measureText(timeText);
+          const textWidth = textMetrics.width + 8;
+          const textHeight = 16;
+          const textX = x;
+          const textY = 25;
+          
+          // Background with rounded corners effect
+          ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+          ctx.fillRect(textX - textWidth / 2, textY - textHeight + 2, textWidth, textHeight);
+          
+          // Draw the time text
+          ctx.fillStyle = "#ff6b35";
+          ctx.fillText(timeText, textX, textY);
           ctx.textAlign = "left"; // Reset alignment
+        } else {
+          // Normal playback mode - subtle but visible
+          // Draw subtle glow
+          const glowGradient = ctx.createRadialGradient(x, timeRulerHeight / 2, 0, x, timeRulerHeight / 2, 15);
+          glowGradient.addColorStop(0, "rgba(34, 197, 94, 0.2)");
+          glowGradient.addColorStop(0.5, "rgba(34, 197, 94, 0.05)");
+          glowGradient.addColorStop(1, "rgba(34, 197, 94, 0)");
+          ctx.fillStyle = glowGradient;
+          ctx.fillRect(x - 15, 0, 30, timeRulerHeight);
+          
+          // Main playback line
+          ctx.strokeStyle = "#22c55e"; // Green for normal playback
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, timelineHeight);
+          ctx.stroke();
+          
+          // Small indicator dot at top
+          ctx.fillStyle = "#22c55e";
+          ctx.beginPath();
+          ctx.arc(x, 6, 4, 0, 2 * Math.PI);
+          ctx.fill();
         }
       }
     }
 
+    // Add "No Video" indicator when no video is loaded AND no clips are present
+    if ((!duration || duration <= 0) && clips.length === 0) {
+      ctx.fillStyle = "rgba(107, 114, 128, 0.1)"; // Subtle background
+      ctx.fillRect(0, timeRulerHeight, timelineWidth, timelineHeight - timeRulerHeight);
+      
+      // Add "No Video Loaded" text
+      ctx.fillStyle = "#6b7280"; // editor-text-muted
+      ctx.font = "14px 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace";
+      ctx.textAlign = "center";
+      const centerY = timeRulerHeight + (timelineHeight - timeRulerHeight) / 2;
+      ctx.fillText("No Video Loaded", timelineWidth / 2, centerY);
+      ctx.fillText("Timeline shows default 60-second ruler", timelineWidth / 2, centerY + 20);
+      ctx.textAlign = "left"; // Reset alignment
+    }
+
+    // Draw next available position indicator
+    const existingClipsOnTrack = clips.filter(clip => clip.trackId === tracks[0].id);
+    let nextAvailableOffset = 0;
+    
+    if (existingClipsOnTrack.length > 0) {
+      const latestEndTime = Math.max(...existingClipsOnTrack.map(clip => clip.offset + (clip.endTime - clip.startTime)));
+      nextAvailableOffset = latestEndTime;
+    }
+    
+    // Draw a subtle line showing where the next clip will be placed
+    if (nextAvailableOffset > 0) {
+      const nextPosX = (nextAvailableOffset / effectiveDuration) * (timelineWidth * zoom) - pan;
+      if (nextPosX > 0 && nextPosX < timelineWidth) {
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(nextPosX, timeRulerHeight);
+        ctx.lineTo(nextPosX, timeRulerHeight + trackAreaHeight);
+        ctx.stroke();
+        ctx.setLineDash([]); // Reset dash pattern
+      }
+    }
+
+    // Draw clips with their own waveforms and thumbnails
+    console.log(`Drawing ${clips.length} clips`);
+    clips.forEach((clip, index) => {
+      console.log(`Drawing clip ${index}: ${clip.name}`);
+      
+      // Find the media file for this clip
+      const mediaFile = mediaFiles.find(mf => mf.id === clip.mediaFileId);
+      if (!mediaFile) {
+        console.log(`Media file not found for clip ${index}`);
+        return;
+      }
+
+      const clipStartX = (clip.offset / effectiveDuration) * (timelineWidth * zoom) - pan;
+      const clipEndX = ((clip.offset + (clip.endTime - clip.startTime)) / effectiveDuration) * (timelineWidth * zoom) - pan;
+      const clipWidth = Math.max(1, clipEndX - clipStartX);
+      
+      console.log(`Clip ${index} positioning: startX=${clipStartX}, endX=${clipEndX}, width=${clipWidth}`);
+      
+      // Only draw if clip is visible
+      if (clipEndX > 0 && clipStartX < timelineWidth) {
+        console.log(`Drawing visible clip ${index} at (${clipStartX}, ${timeRulerHeight}) with width ${clipWidth}`);
+        
+        // Clip background - different colors for selected, hovered, and normal clips
+        const isSelected = selectedClipId === clip.id;
+        const isHovered = hoveredClipId === clip.id;
+        
+        if (isSelected) {
+          ctx.fillStyle = "rgba(255, 107, 53, 0.4)"; // Orange for selected
+        } else if (isHovered) {
+          ctx.fillStyle = "rgba(59, 130, 246, 0.5)"; // Brighter blue for hovered
+        } else {
+          ctx.fillStyle = "rgba(59, 130, 246, 0.3)"; // Normal blue
+        }
+        ctx.fillRect(clipStartX, timeRulerHeight, clipWidth, trackAreaHeight);
+
+        // Clip border - different styles for selected, hovered, and normal clips
+        if (isSelected) {
+          ctx.strokeStyle = "#ff6b35"; // Orange border for selected
+          ctx.lineWidth = 4;
+        } else if (isHovered) {
+          ctx.strokeStyle = "#60a5fa"; // Lighter blue border for hovered
+          ctx.lineWidth = 3;
+        } else {
+          ctx.strokeStyle = "#3b82f6"; // Normal blue border
+          ctx.lineWidth = 2;
+        }
+        ctx.strokeRect(clipStartX, timeRulerHeight, clipWidth, trackAreaHeight);
+
+        // Draw waveform for this clip (below thumbnails in both layering and position)
+        if (mediaFile.peaks && mediaFile.peaks.length > 0) {
+          console.log(`Drawing waveform for clip ${index}: ${mediaFile.peaks.length} peaks, clipWidth: ${clipWidth}`);
+          console.log(`First 10 peak values:`, mediaFile.peaks.slice(0, 10));
+          console.log(`Max peak value:`, Math.max(...mediaFile.peaks));
+          console.log(`Min peak value:`, Math.min(...mediaFile.peaks));
+          
+          const clipDuration = clip.endTime - clip.startTime;
+          const samplesPerPixel = mediaFile.peaks.length / clipWidth;
+          const maxPeak = Math.max(...mediaFile.peaks);
+          
+          ctx.fillStyle = "#ffffff";
+          
+          // Draw more bars with rounded corners
+          const barSpacing = Math.max(1, Math.floor(clipWidth / 400)); // Max 400 bars
+          const barWidth = Math.max(1, barSpacing - 1);
+          
+          for (let x = 0; x < clipWidth; x += barSpacing) {
+            const sampleIndex = Math.floor(x * samplesPerPixel);
+            if (sampleIndex < mediaFile.peaks.length) {
+              const amplitude = mediaFile.peaks[sampleIndex];
+              // Position waveform in the lower portion of the track (below thumbnails)
+              const waveformY = timeRulerHeight + trackAreaHeight * 0.75; // Start at 75% down the track
+              // Normalize amplitude and limit height (reduce to 25% of track height)
+              const normalizedAmplitude = maxPeak > 0 ? amplitude / maxPeak : 0;
+              const height = Math.max(2, (normalizedAmplitude * trackAreaHeight * 0.3) / 2);
+              
+              // Draw rounded waveform bars
+              const barX = clipStartX + x;
+              const barY = waveformY - height;
+              const barHeight = height * 2;
+              
+              // Create rounded rectangle
+              ctx.beginPath();
+              ctx.roundRect(barX, barY, barWidth, barHeight, barWidth / 2);
+              ctx.fill();
+            }
+          }
+        } else {
+          console.log(`No peaks data for clip ${index}:`, mediaFile.peaks);
+          // Draw a simple audio icon when no waveform data (positioned lower)
+          ctx.fillStyle = "#ffffff";
+          ctx.font = "24px Arial, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText("♪", clipStartX + clipWidth / 2, timeRulerHeight + trackAreaHeight * 0.75 + 8);
+          ctx.textAlign = "left"; // Reset alignment
+        }
+
+        // Draw filmstrip thumbnails for this clip (if it's a video)
+        console.log(`Clip ${index} thumbnail check:`, {
+          type: mediaFile.type,
+          hasThumbnails: !!mediaFile.thumbnails,
+          thumbnailCount: mediaFile.thumbnails?.length || 0,
+          clipWidth,
+          condition: mediaFile.type === 'video' && mediaFile.thumbnails && mediaFile.thumbnails.length > 0 && clipWidth > 100
+        });
+        
+        if (mediaFile.type === 'video' && clipWidth > 100) {
+          const thumbnailHeight = Math.min(trackAreaHeight * 0.9, 40); // Back to original size for compact tracks
+          
+          // Calculate which thumbnails to show based on clip position and duration
+          const clipDuration = clip.endTime - clip.startTime;
+          const clipStartTime = clip.offset;
+          const clipEndTime = clip.offset + clipDuration;
+          
+          // Calculate which thumbnails correspond to this time segment
+          const totalDuration = mediaFile.duration;
+          const availableThumbnails = mediaFile.thumbnails?.length || 0;
+          
+          // Calculate how many thumbnails we can fit in the clip width
+          // Each thumbnail should represent a time segment, so calculate based on available space
+          const thumbnailCount = Math.min(availableThumbnails, Math.floor((clipWidth - 8) / 20)); // Min 20px per thumbnail
+          
+          // Calculate the actual width each thumbnail should have to fill the segment
+          const segmentThumbnailWidth = (clipWidth - 8) / thumbnailCount;
+          
+          console.log(`Drawing ${thumbnailCount} thumbnails for clip ${index} (${clipDuration.toFixed(2)}s segment), width: ${segmentThumbnailWidth.toFixed(1)}px each`);
+          
+          // Draw filmstrip thumbnails across the clip
+          for (let i = 0; i < thumbnailCount; i++) {
+            const thumbX = clipStartX + 4 + (i * segmentThumbnailWidth);
+            const thumbY = timeRulerHeight + 4;
+            
+            // Try to use actual thumbnails if available
+            if (mediaFile.thumbnails && mediaFile.thumbnails.length > 0) {
+              // Calculate which thumbnail corresponds to this position in the time segment
+              const segmentProgress = thumbnailCount > 1 ? i / (thumbnailCount - 1) : 0; // 0 to 1 across the segment
+              const segmentTime = clipStartTime + (segmentProgress * clipDuration);
+              
+              // Map segment time to thumbnail index
+              const thumbnailIndex = Math.floor((segmentTime / totalDuration) * mediaFile.thumbnails.length);
+              const clampedIndex = Math.max(0, Math.min(mediaFile.thumbnails.length - 1, thumbnailIndex));
+              const thumbnailUrl = mediaFile.thumbnails[clampedIndex];
+              
+              console.log(`Thumbnail ${i}: segmentTime=${segmentTime.toFixed(2)}s, index=${clampedIndex}/${mediaFile.thumbnails.length}`);
+              
+              // Use cached thumbnail or create new one
+              const cacheKey = `clip_${clip.id}_thumb_${i}_${thumbnailUrl}`;
+              let img = thumbnailCache.current.get(cacheKey);
+              
+              if (img && img.complete && img.naturalWidth > 0) {
+                // Draw cached thumbnail immediately
+                ctx.drawImage(img, thumbX, thumbY, segmentThumbnailWidth, thumbnailHeight);
+              } else if (!img) {
+                // Create new image only if not cached
+                img = new Image();
+                img.onload = () => {
+                  // Cache the loaded image
+                  thumbnailCache.current.set(cacheKey, img!);
+                  // Redraw the timeline to show the loaded thumbnail
+                  if (canvasRef.current) {
+                    drawTimeline();
+                  }
+                };
+                img.onerror = () => {
+                  // Draw a placeholder if thumbnail fails to load
+                  ctx.fillStyle = "rgba(100, 100, 100, 0.5)";
+                  ctx.fillRect(thumbX, thumbY, segmentThumbnailWidth, thumbnailHeight);
+                  ctx.fillStyle = "#ffffff";
+                  ctx.font = "10px Arial";
+                  ctx.textAlign = "center";
+                  ctx.fillText("ERR", thumbX + segmentThumbnailWidth / 2, thumbY + thumbnailHeight / 2 + 3);
+                  ctx.textAlign = "left";
+                };
+                img.src = thumbnailUrl;
+              }
+            } else if (mediaFile.thumbnailUrl) {
+              // Fallback: use the single thumbnail and duplicate it
+              const fallbackCacheKey = `clip_${clip.id}_fallback_thumb_${i}_${mediaFile.thumbnailUrl}`;
+              let fallbackImg = thumbnailCache.current.get(fallbackCacheKey);
+              
+              if (fallbackImg && fallbackImg.complete && fallbackImg.naturalWidth > 0) {
+                // Draw cached fallback thumbnail immediately
+                ctx.drawImage(fallbackImg, thumbX, thumbY, segmentThumbnailWidth, thumbnailHeight);
+              } else if (!fallbackImg) {
+                // Create new fallback image only if not cached
+                fallbackImg = new Image();
+                fallbackImg.onload = () => {
+                  // Cache the loaded fallback image
+                  thumbnailCache.current.set(fallbackCacheKey, fallbackImg!);
+                  // Redraw the timeline to show the loaded thumbnail
+                  if (canvasRef.current) {
+                    drawTimeline();
+                  }
+                };
+                fallbackImg.onerror = () => {
+                  // Draw a placeholder if thumbnail fails to load
+                  ctx.fillStyle = "rgba(100, 100, 100, 0.5)";
+                  ctx.fillRect(thumbX, thumbY, segmentThumbnailWidth, thumbnailHeight);
+                  ctx.fillStyle = "#ffffff";
+                  ctx.font = "10px Arial";
+                  ctx.textAlign = "center";
+                  ctx.fillText("ERR", thumbX + segmentThumbnailWidth / 2, thumbY + thumbnailHeight / 2 + 3);
+                  ctx.textAlign = "left";
+                };
+                fallbackImg.src = mediaFile.thumbnailUrl;
+              }
+            } else {
+              // Draw test pattern if no thumbnails available
+              ctx.fillStyle = `hsl(${(i * 36) % 360}, 70%, 50%)`;
+              ctx.fillRect(thumbX, thumbY, segmentThumbnailWidth, thumbnailHeight);
+              ctx.fillStyle = "#ffffff";
+              ctx.font = "10px Arial";
+              ctx.textAlign = "center";
+              ctx.fillText(`${i + 1}`, thumbX + segmentThumbnailWidth / 2, thumbY + thumbnailHeight / 2 + 3);
+              ctx.textAlign = "left";
+            }
+          }
+        }
+
+
+        // Clip name and info
+        if (clipWidth > 60) {
+          // Position text in the bottom area, leaving space for waveform and thumbnail
+          const textY = timeRulerHeight + trackAreaHeight - 8;
+          const textX = clipStartX + 4;
+          
+          // Add selection indicator
+          if (isSelected) {
+            ctx.fillStyle = "#ff6b35";
+            ctx.font = "10px Arial, sans-serif";
+            ctx.textAlign = "left";
+            ctx.fillText("●", textX, textY - 2);
+          }
+          
+          // If there's a thumbnail, position text to the right of it
+          const thumbnailWidth = mediaFile.type === 'video' && clipWidth > 80 ? 
+            Math.min(trackAreaHeight * 0.9, 40) * (mediaFile.width / mediaFile.height) + 8 : 0; // Back to original size
+          
+          // Duration info in right corner
+          if (clipWidth > 60) {
+            const duration = (clip.endTime - clip.startTime).toFixed(1);
+            ctx.fillStyle = "#e5e7eb";
+            ctx.font = "11px Arial, sans-serif";
+            ctx.textAlign = "right";
+            ctx.fillText(`${duration}s`, clipStartX + clipWidth - 4, textY);
+          }
+        }
+      }
+    });
+
     // Border
-    ctx.strokeStyle = "#27272a";
+    ctx.strokeStyle = "#27272a"; // editor-border-accent
     ctx.lineWidth = 1;
-    ctx.strokeRect(0, 0, width, height);
-   }, [samples, accepted, preview, duration, width, height, thumbnails, currentTime, zoom, pan, formatTime, thumbnailDimensions, isScrubbing, isHoveringRuler]);
+    ctx.strokeRect(0, 0, timelineWidth, timelineHeight);
+   }, [samples, accepted, preview, duration, timelineWidth, timelineHeight, thumbnails, currentTime, zoom, pan, formatTime, thumbnailDimensions, isScrubbing, isHoveringRuler, clips, tracks, trackHeight, timeRulerHeight]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -655,6 +1218,7 @@ export function AdvancedTimeline({
         clearTimeout(zoomTimeoutRef.current);
         zoomTimeoutRef.current = null;
       }
+      
       
       // Clear any pending canvas operations
       const canvas = canvasRef.current;
@@ -690,6 +1254,18 @@ export function AdvancedTimeline({
     }
   }, [filePath, duration]);
 
+  // Clear selection when clips change (e.g., when a clip is deleted)
+  useEffect(() => {
+    if (selectedClipId && !clips.find(clip => clip.id === selectedClipId)) {
+      setSelectedClipId(null);
+    }
+  }, [clips, selectedClipId]);
+
+  // Redraw timeline when selection changes or force redraw is triggered
+  useEffect(() => {
+    drawTimeline();
+  }, [selectedClipId, forceRedraw, drawTimeline]);
+
   // Add visibility observer to prevent rendering issues when component is off-screen
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -714,26 +1290,49 @@ export function AdvancedTimeline({
   }, [drawTimeline]);
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const t = ((x + pan) / (width * zoom)) * duration;
-    setCurrentTime(t);
-    onSeek?.(t);
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!duration) return;
-    
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const t = ((x + pan) / (width * zoom)) * duration;
+    const effectiveDuration = getEffectiveDuration();
+    const t = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
+    
+    // Check if click is on a clip
+    const clickedClip = findClipAtPosition(x, y, 5);
+    
+    if (clickedClip) {
+      // Clicked on a clip - select it
+      flushSync(() => {
+        setSelectedClipId(clickedClip.id);
+      });
+      // Force immediate redraw
+      setForceRedraw(prev => prev + 1);
+      // Also call drawTimeline directly for immediate visual feedback
+      drawTimeline();
+    } else {
+      // Clicked on empty space - deselect and seek to that time
+      flushSync(() => {
+        setSelectedClipId(null);
+        setCurrentTime(t);
+      });
+      onSeek?.(t);
+      // Force immediate redraw
+      setForceRedraw(prev => prev + 1);
+      // Also call drawTimeline directly for immediate visual feedback
+      drawTimeline();
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const effectiveDuration = getEffectiveDuration();
+    const t = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
     
     if (isDragging) {
       // Handle panning during drag (allow infinite panning)
       const deltaX = e.clientX - dragStart.x;
-      const newPan = Math.max(0, dragStart.pan - deltaX); // Remove maxPan limit for infinite panning
+      const newPan = Math.max(0, dragStart.pan - deltaX);
       setPan(newPan);
     } else if (isScrubbing) {
       // Handle scrubbing - cursor follows mouse and updates time
@@ -741,12 +1340,12 @@ export function AdvancedTimeline({
       onSeek?.(t);
     } else if (isSelecting && selectionStart !== null) {
       // Handle manual selection
-      const clampedTime = Math.max(0, Math.min(duration, t));
+      const clampedTime = Math.max(0, Math.min(effectiveDuration, t));
       setSelectionEnd(clampedTime);
       setShowSelectionPreview(true);
     } else {
       // Handle time preview during hover (only in ruler area)
-      const timeRulerHeight = height * 0.15;
+      const timeRulerHeight = timelineHeight * 0.15;
       const isInRuler = y <= timeRulerHeight;
       
       setIsHoveringRuler(isInRuler);
@@ -755,13 +1354,27 @@ export function AdvancedTimeline({
         setCurrentTime(t);
       }
       
+      // Check for hover over clips
+      const hoveredClip = findClipAtPosition(x, y, 5);
+      if (hoveredClip) {
+        setHoveredClipId(hoveredClip.id);
+        e.currentTarget.style.cursor = 'pointer'; // Show pointer cursor for clickable clips
+      } else {
+        setHoveredClipId(null);
+        if (isInRuler) {
+          e.currentTarget.style.cursor = 'ew-resize';
+        } else {
+          e.currentTarget.style.cursor = 'grab';
+        }
+      }
+      
       // Check for hover over accepted cuts
       const allCuts = [...accepted];
       let foundHover = false;
       for (let i = 0; i < allCuts.length; i++) {
         const cut = allCuts[i];
-        const cutStartX = (cut.start / duration) * (width * zoom) - pan;
-        const cutEndX = (cut.end / duration) * (width * zoom) - pan;
+        const cutStartX = (cut.start / effectiveDuration) * (timelineWidth * zoom) - pan;
+        const cutEndX = (cut.end / effectiveDuration) * (timelineWidth * zoom) - pan;
         if (x >= cutStartX && x <= cutEndX) {
           setHoveredCutIndex(i);
           foundHover = true;
@@ -775,15 +1388,14 @@ export function AdvancedTimeline({
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!duration) return;
-    
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const t = ((x + pan) / (width * zoom)) * duration;
+    const effectiveDuration = getEffectiveDuration();
+    const t = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
     
     // Check if we're in the time ruler area (top 15% of timeline)
-    const timeRulerHeight = height * 0.15;
+    const timeRulerHeight = timelineHeight * 0.15;
     const isInRuler = y <= timeRulerHeight;
     
     // Check if we're in the timeline area (not on zoom controls)
@@ -794,7 +1406,7 @@ export function AdvancedTimeline({
       
       if (isRightClick || isShiftClick) {
         // Start manual selection mode
-        const clampedTime = Math.max(0, Math.min(duration, t));
+        const clampedTime = Math.max(0, Math.min(effectiveDuration, t));
         setIsSelecting(true);
         setSelectionStart(clampedTime);
         setSelectionEnd(clampedTime);
@@ -805,9 +1417,13 @@ export function AdvancedTimeline({
         setCurrentTime(t);
         onSeek?.(t);
       } else {
-        // Start panning mode when clicking outside the ruler
-        setIsDragging(true);
-        setDragStart({ x: e.clientX, pan });
+        // Check if clicking on a clip - if so, don't start dragging
+        const clickedClip = findClipAtPosition(x, y, 5);
+        if (!clickedClip) {
+          // Start panning mode when clicking outside the ruler and not on a clip
+          setIsDragging(true);
+          setDragStart({ x: e.clientX, pan });
+        }
       }
     } else {
       // Start panning mode for zoom controls
@@ -842,25 +1458,29 @@ export function AdvancedTimeline({
     setIsDragging(false);
     setIsScrubbing(false);
     setIsHoveringRuler(false);
-    setIsSelecting(false);
-    setSelectionStart(null);
-    setSelectionEnd(null);
-    setShowSelectionPreview(false);
+    // Don't reset selection states on mouse leave to avoid interfering with click events
+    // Only reset manual selection if we're actually in selection mode
+    if (isSelecting) {
+      setIsSelecting(false);
+      setSelectionStart(null);
+      setSelectionEnd(null);
+      setShowSelectionPreview(false);
+    }
     setHoveredCutIndex(null);
+    setHoveredClipId(null);
   };
 
   const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!duration) return;
-    
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
+    const effectiveDuration = getEffectiveDuration();
     
     // Double-click to remove cut at this position
     const allCuts = [...accepted];
     for (let i = 0; i < allCuts.length; i++) {
       const cut = allCuts[i];
-      const cutStartX = (cut.start / duration) * (width * zoom) - pan;
-      const cutEndX = (cut.end / duration) * (width * zoom) - pan;
+        const cutStartX = (cut.start / effectiveDuration) * (timelineWidth * zoom) - pan;
+        const cutEndX = (cut.end / effectiveDuration) * (timelineWidth * zoom) - pan;
       if (x >= cutStartX && x <= cutEndX) {
         onRemoveCut?.(i);
         break;
@@ -877,7 +1497,7 @@ export function AdvancedTimeline({
         return;
       }
       
-      if (!duration) return;
+      const effectiveDuration = getEffectiveDuration();
       
       const fineStep = 0.1; // 100ms steps
       const coarseStep = 1.0; // 1 second steps
@@ -892,7 +1512,7 @@ export function AdvancedTimeline({
           break;
         case 'ArrowRight':
           e.preventDefault();
-          newTime = Math.min(duration, currentTime + step);
+          newTime = Math.min(effectiveDuration, currentTime + step);
           break;
         case 'Home':
           e.preventDefault();
@@ -900,8 +1520,16 @@ export function AdvancedTimeline({
           break;
         case 'End':
           e.preventDefault();
-          newTime = duration;
+          newTime = effectiveDuration;
           break;
+        case 'Backspace':
+        case 'Delete':
+          e.preventDefault();
+          if (selectedClipId && onDeleteClip) {
+            onDeleteClip(selectedClipId);
+            setSelectedClipId(null);
+          }
+          return;
         default:
           return;
       }
@@ -916,106 +1544,173 @@ export function AdvancedTimeline({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentTime, duration, onSeek]);
 
-  return (
-    <div className="rounded bg-zinc-950 border border-zinc-800 p-2 overflow-x-auto overflow-y-hidden">
-      <div className="text-xs mb-2 text-zinc-400 flex items-center justify-between">
-        <span>Advanced Video Timeline</span>
-        <div className="flex items-center gap-4">
-          {isGeneratingThumbnails && (
-            <span className="text-amber-400">Generating thumbnails...</span>
-          )}
-          <div className="flex items-center gap-2">
-            <span className="text-zinc-500">Zoom: {Math.round(zoom * 100)}%</span>
-          </div>
-          <div className="text-zinc-500 text-xs">
-            Thumbnails: {thumbnails.length} | 
-            Segment: {thumbnailDimensions.segmentDuration.toFixed(1)}s | 
-            Timeline: {(width * zoom).toFixed(0)}px | 
-            Pixels/sec: {((width * zoom) / duration).toFixed(1)} | 
-            Interval: {duration > 0 ? (duration / (width * zoom / 30)).toFixed(1) + 's' : 'N/A'}
-          </div>
-          <span className="text-zinc-500">
-            {formatTime(currentTime)} / {formatTime(duration)}
-          </span>
-        </div>
-      </div>
+  // Calculate track controls height
+  const trackControlsHeight = trackAreaHeight; // Track control height matches track content height
+
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    console.log("Drag over timeline - event fired!");
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    console.log("Drag leave timeline");
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    console.log("Drop on timeline");
+    alert("Drop on timeline!");
+    e.preventDefault();
+    setIsDragOver(false);
+
+    try {
+      const data = JSON.parse(e.dataTransfer.getData("application/json"));
+      console.log("Drop data:", data);
       
-      <div ref={containerRef} className="relative" style={{ height: `${height}px` }}>
-        <canvas 
-          ref={canvasRef} 
-          onClick={handleClick}
-          onMouseMove={handleMouseMove}
-          onMouseDown={handleMouseDown}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseLeave}
-          onDoubleClick={handleDoubleClick}
-          onContextMenu={(e) => e.preventDefault()} // Prevent right-click menu
-          tabIndex={0}
-          className={`${isScrubbing ? 'cursor-grabbing' : isSelecting ? 'cursor-crosshair' : 'cursor-grab'} hover:opacity-90 transition-opacity block focus:outline-none focus:ring-2 focus:ring-blue-500`}
-          style={{ height: `${height}px`, maxHeight: `${height}px` }}
-        />
+      if (data.type === "media-file" && data.mediaFile && onDropMedia) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
         
-        {/* Zoom controls overlay */}
-        <div className="absolute top-2 right-2 flex flex-col gap-1">
+        console.log(`Drop position: x=${x}, y=${y}`);
+        console.log(`Timeline dimensions: width=${timelineWidth}, height=${timelineHeight}`);
+        console.log(`Time ruler height: ${timeRulerHeight}, track height: ${trackHeight}`);
+        
+        // For single track, just use the first track
+        const track = tracks[0];
+        if (track) {
+          // Calculate time offset based on x position
+          const effectiveDuration = getEffectiveDuration();
+          const timeOffset = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
+          
+          console.log(`Dropping on track: ${track.id}, time offset: ${timeOffset}`);
+          onDropMedia(data.mediaFile, track.id, Math.max(0, timeOffset), e);
+        } else {
+          console.log("No tracks available");
+        }
+      } else {
+        console.log("Invalid drop data or missing onDropMedia handler");
+      }
+    } catch (error) {
+      console.error("Error handling drop:", error);
+    }
+  };
+
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden w-full">
+      {/* Header with Timeline Controls */}
+      <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
+        <h3 className="text-sm font-medium text-white">Timeline</h3>
+        
+        {/* Timeline Controls */}
+        <div className="flex items-center gap-1">
+          
+          
+          {/* Zoom Controls */}
           <button
-            onClick={() => {
-              try {
-                const targetZoom = Math.min(10, zoom * 1.15); // Smoother zoom step
-                safeZoom(targetZoom, undefined, true); // Use animation
-              } catch (error) {
-                console.error('Error zooming in:', error);
-              }
-            }}
-            className={`w-6 h-6 bg-zinc-800 text-zinc-200 rounded text-xs hover:bg-zinc-700 ${isZooming ? 'opacity-50' : ''}`}
+            onClick={handleZoomIn}
+            className={`p-1 text-slate-400 hover:text-white transition-colors rounded ${isZooming ? 'opacity-50' : ''}`}
             title="Zoom In"
             disabled={isZooming}
           >
-            +
+            <span className="w-4 h-4 flex items-center justify-center text-sm font-medium">+</span>
           </button>
           <button
-            onClick={() => {
-              try {
-                const targetZoom = zoom / 1.15; // Smoother zoom step
-                safeZoom(targetZoom, undefined, true); // Use animation
-              } catch (error) {
-                console.error('Error zooming out:', error);
-              }
-            }}
-            className={`w-6 h-6 bg-zinc-800 text-zinc-200 rounded text-xs hover:bg-zinc-700 ${isZooming ? 'opacity-50' : ''}`}
+            onClick={handleZoomOut}
+            className={`p-1 text-slate-400 hover:text-white transition-colors rounded ${isZooming ? 'opacity-50' : ''}`}
             title="Zoom Out"
             disabled={isZooming}
           >
-            -
+            <span className="w-4 h-4 flex items-center justify-center text-sm font-medium">-</span>
           </button>
           <button
-            onClick={() => {
-              try {
-                safeZoom(1, undefined, true); // Reset to 1x zoom with animation
-              } catch (error) {
-                console.error('Error resetting zoom:', error);
-                // Fallback to direct state reset
-              setZoom(1);
-              setPan(0);
-              }
-            }}
-            className={`w-6 h-6 bg-zinc-800 text-zinc-200 rounded text-xs hover:bg-zinc-700 ${isZooming ? 'opacity-50' : ''}`}
-            title="Reset View"
+            onClick={handleResetZoom}
+            className={`p-1 text-slate-400 hover:text-white transition-colors rounded ${isZooming ? 'opacity-50' : ''}`}
+            title="Reset Zoom"
             disabled={isZooming}
           >
-            ⌂
+            <span className="w-4 h-4 flex items-center justify-center text-sm font-medium">⌂</span>
           </button>
+          
+          {/* Separator */}
+          <div className="w-px h-6 bg-editor-bg-tertiary mx-1"></div>
+          
+          {/* Cut Management Tools */}
+          <button
+            onClick={onMarkIn}
+            className="p-1 text-slate-400 hover:text-white transition-colors rounded"
+            title="Mark In Point"
+          >
+            <Scissors className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onClearAllCuts}
+            className="p-1 text-slate-400 hover:text-white transition-colors rounded"
+            title="Clear All Cuts"
+            disabled={accepted.length === 0}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+          
         </div>
       </div>
       
-      <div className="mt-2 text-[11px] text-zinc-400 flex gap-3">
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "rgba(239,68,68,0.8)" }}></span> Accepted
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "rgba(245,158,11,0.8)" }}></span> Preview
-        </span>
-         <span className="ml-auto">Click ruler to scrub • Drag timeline to pan • Right-click/Shift+drag to select cuts • Double-click cuts to remove • Use +/- buttons to zoom • Arrow keys: fine scrub • Shift+arrows: coarse scrub</span>
+      {/* Timeline Content with Track Controls */}
+      <div className="bg-slate-900 flex">
+        {/* Track Controls Sidebar */}
+        <div className="w-56 bg-slate-800 border-r border-slate-700 flex-shrink-0">
+          {/* Ruler spacer to align with timeline ruler */}
+          <div style={{ height: `${timeRulerHeight}px` }} className="bg-slate-750 border-b border-slate-700"></div>
+          {tracks.map((track) => (
+            <TrackControls
+              key={track.id}
+              track={track}
+              onUpdateTrack={onUpdateTrack || (() => {})}
+              onDeleteTrack={onDeleteTrack || (() => {})}
+              height={trackControlsHeight}
+            />
+          ))}
+        </div>
+        
+        {/* Timeline Canvas */}
+        <div className="flex-1 relative transition-all duration-300 ease-in-out" style={{ height: `${timelineHeight}px` }}>
+          <div ref={containerRef} className="w-full h-full">
+            <canvas 
+              ref={canvasRef} 
+              onClick={handleClick}
+              onMouseMove={handleMouseMove}
+              onMouseDown={handleMouseDown}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseLeave}
+              onDoubleClick={handleDoubleClick}
+              onContextMenu={(e) => e.preventDefault()} // Prevent right-click menu
+              onDragOver={handleDragOver}
+              onDragEnter={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              tabIndex={0}
+              className={`${isScrubbing ? 'cursor-grabbing' : isSelecting ? 'cursor-crosshair' : isDragOver ? 'cursor-copy' : 'cursor-default'} hover:opacity-95 transition-all duration-200 ease-in-out block w-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50`}
+              style={{ 
+                height: `${timelineHeight}px`, 
+                maxHeight: `${timelineHeight}px`,
+                backgroundColor: isDragOver ? 'rgba(59, 130, 246, 0.1)' : 'transparent'
+              }}
+            />
+          </div>
+
+          {/* Thumbnail generation indicator */}
+          {isGeneratingThumbnails && (
+            <div className="absolute top-3 left-3 flex items-center gap-2 text-editor-status-warning bg-editor-bg-secondary px-2 py-1 rounded">
+              <div className="w-3 h-3 border-2 border-editor-status-warning border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-xs">Generating thumbnails...</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
-}
+});

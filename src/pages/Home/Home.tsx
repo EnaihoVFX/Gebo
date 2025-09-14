@@ -62,7 +62,7 @@ export default function Home() {
     <>
       <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl mb-4">Welcome to Gebo Video Editor</h1>
+          <img src="/logo.png" alt="Video Editor Logo" className="h-16 mb-4 mx-auto" />
           <button onClick={openProject} className="px-4 py-2 bg-cyan-600 text-white rounded mr-2">Open Project</button>
           <button onClick={() => setModalOpen(true)} className="px-4 py-2 bg-zinc-600 text-white rounded">Create New Project</button>
         </div>
