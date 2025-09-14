@@ -27,7 +27,6 @@ export default function App() {
 
   // Players control
   const editedRef = useRef<PlayerHandle>(null);
-  const proposedRef = useRef<PlayerHandle>(null);
 
   // Custom hooks
   const {
@@ -61,9 +60,26 @@ export default function App() {
         e.preventDefault();
         openCommand();
       } else if (e.key === " ") {
-        // space toggles play/pause on both when focused anywhere
-        e.preventDefault();
-        togglePlay();
+        // Check if we're in an input field (including contenteditable)
+        const target = e.target as HTMLElement;
+        const isInputField = target instanceof HTMLInputElement || 
+                           target instanceof HTMLTextAreaElement ||
+                           target.contentEditable === 'true' ||
+                           target.closest('[contenteditable="true"]') ||
+                           target.closest('input') ||
+                           target.closest('textarea');
+        
+        // Also check if the active element is an input
+        const activeElement = document.activeElement;
+        const isActiveInput = activeElement instanceof HTMLInputElement || 
+                            activeElement instanceof HTMLTextAreaElement ||
+                            activeElement?.contentEditable === 'true';
+        
+        if (!isInputField && !isActiveInput) {
+          // space toggles play/pause when not in input fields
+          e.preventDefault();
+          togglePlay();
+        }
       }
     };
     
@@ -90,10 +106,9 @@ export default function App() {
     if (selectedFile) {
       setAcceptedCuts([]);
       setPreviewCuts([]);
-      // Seek both players to 0 after a short delay to ensure video is loaded
+      // Seek player to 0 after a short delay to ensure video is loaded
       setTimeout(() => {
         editedRef.current?.seek(0);
-        proposedRef.current?.seek(0);
       }, 100);
     }
   };
@@ -105,9 +120,9 @@ export default function App() {
   };
 
   // ---------- Commands ----------
-  const handleExecuteCommand = () => {
+  const handleExecuteCommand = (command: string) => {
     executeCommand(
-      commandInput,
+      command,
       setCommandInput,
       setShowCommandDialog,
       setPreviewCuts,
@@ -135,13 +150,13 @@ export default function App() {
   };
 
   // ---------- Playback controls ----------
-  const playBoth = () => { editedRef.current?.play(); proposedRef.current?.play(); };
-  const pauseBoth = () => { editedRef.current?.pause(); proposedRef.current?.pause(); };
+  const playVideo = () => { editedRef.current?.play(); };
+  const pauseVideo = () => { editedRef.current?.pause(); };
   const togglePlay = () => {
-    if (editedRef.current?.isPlaying() || proposedRef.current?.isPlaying()) pauseBoth();
-    else playBoth();
+    if (editedRef.current?.isPlaying()) pauseVideo();
+    else playVideo();
   };
-  const seekBoth = (t: number) => { editedRef.current?.seek(t); proposedRef.current?.seek(t); };
+  const seekVideo = (t: number) => { editedRef.current?.seek(t); };
 
   const duration = probe?.duration || 0;
 
@@ -304,8 +319,8 @@ export default function App() {
           onRejectPlan={rejectPlan}
           onExport={onExport}
           onTogglePlay={togglePlay}
-          onSeekBack={() => seekBoth(Math.max(0, (editedRef.current?.currentTime() || 0) - 1))}
-          onSeekForward={() => seekBoth((editedRef.current?.currentTime() || 0) + 1)}
+          onSeekBack={() => seekVideo(Math.max(0, (editedRef.current?.currentTime() || 0) - 1))}
+          onSeekForward={() => seekVideo((editedRef.current?.currentTime() || 0) + 1)}
           filePath={filePath}
           probe={probe}
           previewCuts={previewCuts}
@@ -315,9 +330,9 @@ export default function App() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 grid grid-cols-[1fr_280px] overflow-hidden">
+      <div className="flex-1 grid grid-cols-[1fr_320px] overflow-hidden min-h-0">
         {/* Center Content */}
-        <div className="flex flex-col overflow-hidden">
+        <div className="flex flex-col overflow-hidden min-h-0">
           {/* Mobile Debug Toggle - Only visible on small screens */}
           <div className="md:hidden border-b border-zinc-800 p-2">
             <button
@@ -356,10 +371,10 @@ export default function App() {
 
           {previewUrl ? (
             <>
-              {/* Main Preview Area */}
-              <div className="flex-1 flex flex-col lg:flex-row gap-3 p-3 overflow-hidden">
+              {/* Main Preview Area - Only Edited Video */}
+              <div className="flex-1 flex flex-col p-3 overflow-hidden min-h-0">
                 {/* Main Player - Edited (accepted only) */}
-                <div className="flex-1 min-h-0">
+                <div className="flex-1 min-h-0 max-h-full flex items-center justify-center">
                   <Player
                     ref={editedRef}
                     src={previewUrl}
@@ -368,20 +383,10 @@ export default function App() {
                     large
                   />
                 </div>
-                
-                {/* Secondary Player - Proposed (accepted + preview) */}
-                <div className="w-full lg:w-64 flex-shrink-0">
-                  <Player
-                    ref={proposedRef}
-                    src={previewUrl}
-                    label="Proposed (Accepted + Preview)"
-                    cuts={[...acceptedCuts, ...previewCuts]}
-                  />
-                </div>
               </div>
 
               {/* Timeline at Bottom */}
-              <div className="flex-shrink-0 border-t border-zinc-800 p-3">
+              <div className="flex-shrink-0 border-t border-zinc-800 p-3 min-h-0">
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <div className="text-xs text-zinc-400">
@@ -403,7 +408,7 @@ export default function App() {
                         accepted={acceptedCuts}
                         preview={previewCuts}
                         filePath={filePath}
-                        onSeek={seekBoth}
+                        onSeek={seekVideo}
                       />
                     ) : (
                       <VideoTimeline
@@ -412,7 +417,7 @@ export default function App() {
                         accepted={acceptedCuts}
                         preview={previewCuts}
                         filePath={filePath}
-                        onSeek={seekBoth}
+                        onSeek={seekVideo}
                       />
                     )}
                   </ErrorBoundary>
@@ -439,6 +444,9 @@ export default function App() {
             peaks={peaks}
             acceptedCuts={acceptedCuts}
             previewCuts={previewCuts}
+            onExecuteCommand={handleExecuteCommand}
+            onAcceptPlan={acceptPlan}
+            onRejectPlan={rejectPlan}
           />
         </div>
       </div>
