@@ -73,8 +73,8 @@ export default function App() {
         const p = await probeVideo(sel);
         setProbe(p);
         log(`Probed: dur=${p.duration.toFixed(2)}s fps=${p.fps.toFixed(2)} rate=${p.audio_rate} codec=${p.v_codec}/${p.a_codec}`);
-      } catch (e: any) {
-        log(`Probe failed: ${e?.toString?.() || e}`);
+      } catch (e: unknown) {
+        log(`Probe failed: ${e instanceof Error ? e.message : String(e)}`);
         log(`Error details: ${JSON.stringify(e)}`);
         return;
       }
@@ -84,8 +84,8 @@ export default function App() {
         const pk = await audioPeaks(sel);
         setPeaks(pk.map(v => Math.max(0, Math.min(32767, v))));
         log(`Peaks: ${pk.length}`);
-      } catch (e: any) {
-        log(`Audio peaks failed: ${e?.toString?.() || e}`);
+      } catch (e: unknown) {
+        log(`Audio peaks failed: ${e instanceof Error ? e.message : String(e)}`);
         log(`Peaks error details: ${JSON.stringify(e)}`);
         setPeaks([]);
       }
@@ -98,8 +98,8 @@ export default function App() {
           const proxyUrl = convertFileSrc(prox);
           setPreviewUrl(proxyUrl);
           log(`Using preview proxy (H.264/AAC) for playback: ${proxyUrl}`);
-        } catch (e:any) {
-          log("Proxy failed, continuing with original. " + (e?.toString?.() || e));
+        } catch (e: unknown) {
+          log("Proxy failed, continuing with original. " + (e instanceof Error ? e.message : String(e)));
           log(`Proxy error details: ${JSON.stringify(e)}`);
         }
       }
@@ -109,8 +109,8 @@ export default function App() {
         editedRef.current?.seek(0);
         proposedRef.current?.seek(0);
       }, 100);
-    } catch (e: any) {
-      log(`File picker failed: ${e?.toString?.() || e}`);
+    } catch (e: unknown) {
+      log(`File picker failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
