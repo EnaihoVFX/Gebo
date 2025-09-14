@@ -107,6 +107,55 @@ fn generate_thumbnails(path: String, count: usize, width: u32) -> Result<Vec<Str
   ffmpeg::generate_thumbnails(&path, count, width).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn resize_window(window: tauri::Window, width: f64, height: f64) -> Result<(), String> {
+  window.set_size(tauri::LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
+  Ok(())
+}
+
+#[tauri::command]
+async fn center_window(window: tauri::Window) -> Result<(), String> {
+  window.center().map_err(|e| e.to_string())?;
+  Ok(())
+}
+
+#[tauri::command]
+async fn set_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), String> {
+  window.set_fullscreen(fullscreen).map_err(|e| e.to_string())?;
+  Ok(())
+}
+
+#[tauri::command]
+async fn create_editor_window(app: tauri::AppHandle) -> Result<(), String> {
+  println!("Creating editor window...");
+  
+  let _editor_window = tauri::WebviewWindowBuilder::new(
+    &app,
+    "editor",
+    tauri::WebviewUrl::App("/editor".into())
+  )
+  .title("Video Editor")
+  .fullscreen(true)
+  .build()
+  .map_err(|e| {
+    println!("Failed to create editor window: {}", e);
+    e.to_string()
+  })?;
+  
+  println!("Editor window created successfully");
+  Ok(())
+}
+
+#[tauri::command]
+async fn focus_main_window(app: tauri::AppHandle) -> Result<(), String> {
+  use tauri::Manager;
+  
+  if let Some(main_window) = app.get_webview_window("main") {
+    main_window.set_focus().map_err(|e| e.to_string())?;
+  }
+  Ok(())
+}
+
 fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
@@ -122,7 +171,12 @@ fn main() {
       get_file_url,
       read_file_chunk,
       get_file_size,
-      generate_thumbnails
+      generate_thumbnails,
+      resize_window,
+      center_window,
+      set_fullscreen,
+      create_editor_window,
+      focus_main_window
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

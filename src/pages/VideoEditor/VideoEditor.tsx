@@ -20,13 +20,12 @@ import {
   Play
 } from "lucide-react";
 
-import { useNavigate } from 'react-router-dom';
 import DebugProjectFileInfo from "./components/DebugProjectFileInfo";
 import Modal from "../../components/Modal";
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
 
 export default function VideoEditor() {
-  // Navigator
-  const navigate = useNavigate();
   const [jsonModal, setJsonModal] = useState(false); // JSON Data modal state
 
   // Edits
@@ -360,6 +359,19 @@ export default function VideoEditor() {
     seekVideo(newTime);
   };
 
+  const handleGoHome = async () => {
+    // Focus the main window before closing this one
+    try {
+      await invoke('focus_main_window');
+    } catch (error) {
+      console.error('Failed to focus main window:', error);
+    }
+    
+    // Close the editor window
+    const window = getCurrentWindow();
+    await window.close();
+  };
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -440,17 +452,22 @@ export default function VideoEditor() {
           break;
         case 'escape':
           e.preventDefault();
-          rejectPlan();
+          // If there are preview cuts, reject them first
+          if (previewCuts.length > 0) {
+            rejectPlan();
+          } else {
+            // Otherwise, close the editor window
+            handleGoHome();
+          }
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [probe, undo, redo, markIn, markOut, togglePlay, acceptPlan, rejectPlan]);
+  }, [probe, undo, redo, markIn, markOut, togglePlay, acceptPlan, rejectPlan, previewCuts, handleGoHome]);
 
   const duration = probe?.duration || 0;
-
 
   return (
     <div className="h-screen bg-editor-bg-primary text-slate-100 flex flex-col overflow-hidden">
@@ -463,9 +480,9 @@ export default function VideoEditor() {
           </div>
           <div className="flex items-center gap-1 sm:gap-2">
             <button 
-              onClick={() => navigate('/')}
+              onClick={handleGoHome}
               className="flex items-center justify-center w-8 h-8 text-editor-text-secondary hover:text-editor-text-primary hover:bg-editor-bg-tertiary rounded-lg transition-colors border-0 p-0"
-              title="Home"
+              title="Close Editor"
             >
               <Home className="w-4 h-4 flex-shrink-0" />
             </button>

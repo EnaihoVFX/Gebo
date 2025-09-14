@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [
-      { "title": "Gebo", "width": 1280, "height": 800, "resizable": true, "dragDropEnabled": false }
+      { "label": "main", "title": "Gebo", "width": 800, "height": 600, "resizable": true, "dragDropEnabled": false, "center": true }
     ],
     "security": { 
       "csp": null,
