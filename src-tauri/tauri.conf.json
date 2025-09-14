@@ -13,6 +13,14 @@
     "windows": [
       { "title": "Gebo", "width": 1280, "height": 800, "resizable": true }
     ],
-    "security": { "csp": null }
+    "security": { 
+      "csp": null,
+      "dangerousDisableAssetCspModification": true
+    }
+  },
+  "plugins": {
+    "fs": {
+      "scope": ["$HOME/**", "$DOCUMENT/**", "$DOWNLOAD/**", "$TEMP/**"]
+    }
   }
 }

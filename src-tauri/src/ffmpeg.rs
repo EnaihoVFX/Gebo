@@ -124,7 +124,7 @@ fn normalize_cuts(mut cuts: Vec<Cut>, duration: f64) -> Vec<Cut> {
   cuts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
   let mut merged: Vec<Cut> = Vec::new();
   for (s, e) in cuts {
-    if let Some((_, me)) = merged.last_mut() {
+    if let Some((_ms, me)) = merged.last_mut() {
       if s <= *me + 0.005 {
         *me = me.max(e);
       } else {
@@ -292,10 +292,9 @@ pub fn make_preview_proxy(input: &str, max_w: Option<u32>) -> Result<String> {
     .ok_or_else(|| anyhow!("Invalid input file path"))?
     .to_string_lossy();
 
-  let dir = input_path
-    .parent()
-    .ok_or_else(|| anyhow!("Invalid input directory"))?;
-  let out_path = dir.join(format!("{}_proxy.mp4", stem));
+  // Use Downloads directory for better Tauri compatibility
+  let downloads_dir = dirs::download_dir().unwrap_or_else(|| std::env::temp_dir());
+  let out_path = downloads_dir.join(format!("{}_proxy.mp4", stem));
   let out_str = out_path.to_string_lossy().to_string();
 
   // scale filter if requested (960 width by default is a good dev choice)
@@ -338,4 +337,57 @@ pub fn make_preview_proxy(input: &str, max_w: Option<u32>) -> Result<String> {
   }
 
   Ok(out_str)
+}
+
+/// --- Thumbnail Generation ------------------------------------------------------------
+
+/// Generate video thumbnails at regular intervals for timeline scrubbing.
+/// Returns a vector of base64-encoded thumbnail images.
+pub fn generate_thumbnails(input: &str, count: usize, width: u32) -> Result<Vec<String>> {
+  if !ffmpeg_exists() {
+    return Err(anyhow!("ffmpeg/ffprobe not found on PATH"));
+  }
+
+  let probe = ffprobe(input).context("ffprobe failed")?;
+  let duration = probe.duration;
+  
+  if duration <= 0.0 {
+    return Err(anyhow!("Invalid video duration"));
+  }
+
+  let mut thumbnails = Vec::new();
+  let interval = duration / (count as f64);
+  
+  for i in 0..count {
+    let timestamp = (i as f64) * interval;
+    
+    // Generate thumbnail using ffmpeg
+    let output = Command::new("ffmpeg")
+      .args([
+        "-v", "error",
+        "-ss", &timestamp.to_string(),
+        "-i", input,
+        "-vframes", "1",
+        "-vf", &format!("scale={}:-1", width),
+        "-f", "image2pipe",
+        "-vcodec", "png",
+        "-"
+      ])
+      .output()
+      .with_context(|| format!("failed to spawn ffmpeg for thumbnail at {}", timestamp))?;
+
+    if !output.status.success() {
+      return Err(anyhow!(
+        "ffmpeg thumbnail generation failed at {}: {}",
+        timestamp,
+        String::from_utf8_lossy(&output.stderr)
+      ));
+    }
+
+    // Convert to base64
+    let base64 = base64::encode(&output.stdout);
+    thumbnails.push(base64);
+  }
+
+  Ok(thumbnails)
 }

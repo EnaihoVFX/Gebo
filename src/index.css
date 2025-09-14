@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -24,8 +28,6 @@ a:hover {
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
 }
@@ -52,6 +54,24 @@ button:hover {
 button:focus,
 button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
+}
+
+/* Hide video play button overlay */
+.video-no-overlay::-webkit-media-controls-overlay-play-button {
+  display: none !important;
+}
+
+.video-no-overlay::-webkit-media-controls-play-button {
+  display: none !important;
+}
+
+.video-no-overlay::-webkit-media-controls-start-playback-button {
+  display: none !important;
+}
+
+/* Hide the large play button that appears on paused videos */
+.video-no-overlay::before {
+  display: none !important;
 }
 
 @media (prefers-color-scheme: light) {
