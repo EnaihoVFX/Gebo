@@ -10,7 +10,6 @@ import { CommandDialog } from "./components/CommandDialog";
 import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { PrecisionControls } from "./components/PrecisionControls";
 import { ExportDialog } from "./components/ExportDialog";
 import { useFileHandling } from "./hooks/useFileHandling";
 import { useWaveformLogic } from "./hooks/useWaveformLogic";
@@ -593,16 +592,6 @@ export default function VideoEditor() {
                 </div>
               </div>
 
-              {/* Precision Controls */}
-              <div className="flex-shrink-0 p-3 border-t border-zinc-800">
-                <PrecisionControls
-                  currentTime={editedRef.current?.currentTime() || 0}
-                  duration={duration}
-                  onSeek={seekVideo}
-                  onFrameStep={frameStep}
-                  frameRate={probe?.fps || 30}
-                />
-              </div>
 
               {/* Timeline at Bottom */}
               <div className="flex-shrink-0 border-t border-zinc-800 p-3 min-h-0">
