@@ -14,6 +14,7 @@ import { useFileHandling } from "./hooks/useFileHandling";
 import { useWaveformLogic } from "./hooks/useWaveformLogic";
 import { useCommandLogic } from "./hooks/useCommandLogic";
 import { MediaGrid } from "./components/MediaGrid";
+import { SongLibrary } from "./components/SongLibrary";
 import { 
   Home, 
   Info, 
@@ -42,18 +43,7 @@ const TransitionsPanel = () => (
   </div>
 );
 
-const AudioPanel = () => (
-  <div className="bg-slate-950 flex-1 flex items-center justify-center">
-    <div className="text-center">
-      <svg className="w-16 h-16 mx-auto mb-4 text-slate-600" fill="currentColor" viewBox="0 0 24 24">
-        <path d="M9.772 4.28c.56-.144 1.097.246 1.206.814.1.517-.263 1.004-.771 1.14A7 7 0 1 0 19 12.9c.009-.5.4-.945.895-1 .603-.067 1.112.371 1.106.977L21 13c0 .107-.002.213-.006.32a.898.898 0 0 1 0 .164l-.008.122a9 9 0 0 1-9.172 8.392A9 9 0 0 1 9.772 4.28z"/>
-        <path d="M15.93 13.753a4.001 4.001 0 1 1-6.758-3.581A4 4 0 0 1 12 9c.75 0 1.3.16 2 .53 0 0 .15.09.25.17-.1-.35-.228-1.296-.25-1.7a58.75 58.75 0 0 1-.025-2.035V2.96c0-.52.432-.94.965-.94.103 0 .206.016.305.048l4.572 1.689c.446.145.597.23.745.353.148.122.258.27.33.446.073.176.108.342.108.801v1.16c0 .518-.443.94-.975.94a.987.987 0 0 1-.305-.049l-1.379-.447-.151-.05c-.437-.14-.618-.2-.788-.26a5.697 5.697 0 0 1-.514-.207 3.53 3.53 0 0 1-.213-.107c-.098-.05-.237-.124-.521-.263L16 6l.011 7c0 .255-.028.507-.082.753h.001z"/>
-      </svg>
-      <h3 className="text-lg font-medium text-slate-400 mb-2">Audio</h3>
-      <p className="text-slate-500">Audio tools and effects will appear here</p>
-    </div>
-  </div>
-);
+// AudioPanel will be replaced with SongLibrary integration
 
 const TextPanel = () => (
   <div className="bg-slate-950 flex-1 flex items-center justify-center">
@@ -831,7 +821,9 @@ export default function VideoEditor() {
           <div className="flex-1 border border-l-0 border-slate-700 bg-slate-900 rounded-r-lg overflow-hidden flex flex-col h-full min-h-0">
             {/* Header */}
             <div className="px-3 sm:px-4 py-0 border-b border-slate-700 bg-slate-800 flex items-center justify-between min-h-[2.3125rem]">
-              <h3 className="text-sm font-medium text-white capitalize">{activePanel}</h3>
+              <h3 className="text-sm font-medium text-white capitalize">
+                {activePanel === 'audio' ? 'Song Library' : activePanel}
+              </h3>
               <div className="flex items-center">
                 {activePanel === 'media' && (
                   <button
@@ -843,6 +835,11 @@ export default function VideoEditor() {
                     </svg>
                     Add Media
                   </button>
+                )}
+                {activePanel === 'audio' && (
+                  <div className="text-xs text-slate-400">
+                    Royalty-free music
+                  </div>
                 )}
               </div>
             </div>
@@ -861,7 +858,21 @@ export default function VideoEditor() {
                 />
               )}
               {activePanel === 'transitions' && <TransitionsPanel />}
-              {activePanel === 'audio' && <AudioPanel />}
+              {activePanel === 'audio' && (
+                <SongLibrary
+                  onAddSong={(song) => {
+                    // Add the downloaded song to media files
+                    log(`Added song to library: ${song.name}`);
+                    // Note: The song is already added to the songDownloader's cache
+                    // We could add it to the main mediaFiles state if needed
+                  }}
+                  onDragStart={(song) => {
+                    // Handle drag start for songs - this will be used for drag and drop to timeline
+                    log(`Started dragging song: ${song.name}`);
+                    // We'll handle the drop in the timeline component
+                  }}
+                />
+              )}
               {activePanel === 'text' && <TextPanel />}
               {activePanel === 'effects' && <EffectsPanel />}
               {activePanel === 'filters' && <FiltersPanel />}

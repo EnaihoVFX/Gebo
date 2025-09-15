@@ -36,6 +36,35 @@ fn read_file_as_base64(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn download_audio_file(url: String, filename: String) -> Result<String, String> {
+  use std::fs;
+  use std::path::PathBuf;
+  
+  // Create downloads directory if it doesn't exist
+  let app_data_dir = dirs::data_dir()
+    .ok_or("Failed to get app data directory")?
+    .join("video-copilot")
+    .join("downloads");
+  
+  fs::create_dir_all(&app_data_dir)
+    .map_err(|e| format!("Failed to create downloads directory: {}", e))?;
+  
+  let file_path = app_data_dir.join(&filename);
+  
+  // Download the file
+  let response = reqwest::blocking::get(&url)
+    .map_err(|e| format!("Failed to download file: {}", e))?;
+  
+  let mut file = fs::File::create(&file_path)
+    .map_err(|e| format!("Failed to create file: {}", e))?;
+  
+  std::io::copy(&mut response.bytes().unwrap().as_ref(), &mut file)
+    .map_err(|e| format!("Failed to write file: {}", e))?;
+  
+  Ok(file_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn copy_to_app_data(path: String) -> Result<String, String> {
   use std::fs;
   use std::path::Path;
@@ -175,6 +204,7 @@ fn main() {
       export_cutlist,
       make_preview_proxy,
       read_file_as_base64,
+      download_audio_file,
       copy_to_app_data,
       get_file_url,
       read_file_chunk,
