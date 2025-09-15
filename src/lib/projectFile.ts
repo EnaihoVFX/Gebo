@@ -1,12 +1,36 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export interface Clip {
-    path: string; // File path as string
+    id: string,
+    path: string, // PathBuf
 }
+
+export interface Segment {
+    id: string,
+
+    clip_id: string, // Reference to the Clip by ID
+    start: number,     // Start time in seconds within the clip
+    end: number,       // End time in seconds within the clip
+}
+
+export type TrackType = "video" | "audio";
+export interface Track {
+    id: string,
+    name: string,
+    type: TrackType,
+    enabled: boolean,
+    muted: boolean,
+    volume: number, // 0-100 for audio tracks, else does not matter
+    order: number, // Order of the track in the timeline
+
+    segments: Segment[], // Segments in this track. Order matters
+}
+
 
 export interface ProjectFile {
     title: string;
-    clips: Clip[];
+    clips_map: Map<string, Clip>;
+    tracks_map: Map<string, Track>;
     path: string;
 }
 

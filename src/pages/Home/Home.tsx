@@ -45,7 +45,7 @@ export default function Home() {
       return;
     }
 
-    const projectFile : ProjectFile = { title: values.title as string, clips: [], path };
+    const projectFile : ProjectFile = { title: values.title as string, clips_map: new Map(), tracks_map: new Map(), path };
 
     // Start loading
     setIsLoading(true);
