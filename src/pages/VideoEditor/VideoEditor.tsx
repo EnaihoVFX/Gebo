@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { exportCutlist } from "../../lib/ffmpeg";
 import type { Range, PlayerHandle, Track, Clip } from "../../types";
 import { Player } from "./components/Player";
@@ -37,7 +37,7 @@ export default function VideoEditor() {
   const [previewCuts, setPreviewCuts] = useState<Range[]>([]);
   const [acceptedCuts, setAcceptedCuts] = useState<Range[]>([]);
   
-  // Tracks
+  // Tracks - Start with default video and audio tracks centered vertically
   const [tracks, setTracks] = useState<Track[]>([
     {
       id: 'video-1',
@@ -46,7 +46,16 @@ export default function VideoEditor() {
       enabled: true,
       muted: false,
       volume: 100,
-      order: 0
+      order: 0  // Center position
+    },
+    {
+      id: 'audio-1',
+      name: 'Audio Track',
+      type: 'audio',
+      enabled: true,
+      muted: false,
+      volume: 100,
+      order: 1  // Just below center
     }
   ]);
 
@@ -302,38 +311,57 @@ export default function VideoEditor() {
       enabled: true,
       muted: false,
       volume: 100,
-      order: tracks.length
+      order: 0 // Will be calculated based on position
     };
-    setTracks(prevTracks => [...prevTracks, newTrack]);
+
+    setTracks(prevTracks => {
+      const videoTracks = prevTracks.filter(t => t.type === 'video');
+      const audioTracks = prevTracks.filter(t => t.type === 'audio');
+      
+      if (type === 'video') {
+        // Add video tracks above existing video tracks (negative order values)
+        const newOrder = videoTracks.length > 0 ? Math.min(...videoTracks.map(t => t.order)) - 1 : -1;
+        newTrack.order = newOrder;
+        
+        return [...prevTracks, newTrack];
+      } else {
+        // Add audio tracks below existing audio tracks (positive order values)
+        const newOrder = audioTracks.length > 0 ? Math.max(...audioTracks.map(t => t.order)) + 1 : 2;
+        newTrack.order = newOrder;
+        
+        return [...prevTracks, newTrack];
+      }
+    });
+    
     log(`Added new ${type} track: ${newTrack.name}`);
   };
 
-  // Function to automatically delete empty tracks
-  const deleteEmptyTracks = useCallback(() => {
-    const tracksWithClips = new Set(clips.map(clip => clip.trackId));
-    const emptyTracks = tracks.filter(track => !tracksWithClips.has(track.id));
-    
-    // Don't delete the last track, even if it's empty
-    if (emptyTracks.length > 0 && tracks.length > 1) {
-      const tracksToDelete = emptyTracks.slice(0, -1); // Keep at least one track
-      
-      if (tracksToDelete.length > 0) {
-        setTracks(prevTracks => prevTracks.filter(track => !tracksToDelete.some(t => t.id === track.id)));
-        log(`Automatically deleted ${tracksToDelete.length} empty track(s): ${tracksToDelete.map(t => t.name).join(', ')}`);
-      }
-    }
-  }, [clips, tracks, log]);
+  // Temporarily disabled: Function to automatically delete empty tracks
+  // const deleteEmptyTracks = useCallback(() => {
+  //   const tracksWithClips = new Set(clips.map(clip => clip.trackId));
+  //   const emptyTracks = tracks.filter(track => !tracksWithClips.has(track.id));
+
+  //   // Don't delete the last track, even if it's empty
+  //   if (emptyTracks.length > 0 && tracks.length > 1) {
+  //     const tracksToDelete = emptyTracks.slice(0, -1); // Keep at least one track
+
+  //     if (tracksToDelete.length > 0) {
+  //       setTracks(prevTracks => prevTracks.filter(track => !tracksToDelete.some(t => t.id === track.id)));
+  //       log(`Automatically deleted ${tracksToDelete.length} empty track(s): ${tracksToDelete.map(t => t.name).join(', ')}`);
+  //     }
+  //   }
+  // }, [clips, tracks, log]);
 
   const deleteClip = (clipId: string) => {
     const clip = clips.find(c => c.id === clipId);
     if (clip) {
       setClips(prevClips => prevClips.filter(c => c.id !== clipId));
       log(`Deleted clip: ${clip.name}`);
-      
-      // Check if we need to delete empty tracks after removing this clip
-      setTimeout(() => {
-        deleteEmptyTracks();
-      }, 0);
+
+      // Temporarily disabled: Check if we need to delete empty tracks after removing this clip
+      // setTimeout(() => {
+      //   deleteEmptyTracks();
+      // }, 0);
     }
   };
 
@@ -518,9 +546,10 @@ export default function VideoEditor() {
   }, []);
 
   // Automatically delete empty tracks when clips change
-  useEffect(() => {
-    deleteEmptyTracks();
-  }, [deleteEmptyTracks]);
+  // Temporarily disabled: Automatically delete empty tracks when clips or tracks change
+  // useEffect(() => {
+  //   deleteEmptyTracks();
+  // }, [deleteEmptyTracks]);
 
   const duration = probe?.duration || 0;
 

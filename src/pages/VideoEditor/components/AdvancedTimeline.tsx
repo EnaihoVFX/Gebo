@@ -41,8 +41,11 @@ export interface AdvancedTimelineHandle {
 export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimelineProps>(({
   peaks, duration, accepted, preview, filePath, tracks, clips, mediaFiles, width, height, onSeek, onAddCut, onRemoveCut, onUpdateTrack, onMarkIn, onClearAllCuts, onDropMedia, onDeleteClip,
 }, ref) => {
+  // Sort tracks by order to ensure proper positioning
+  const sortedTracks = [...tracks].sort((a, b) => a.order - b.order);
+  
   // Debug: Log when component renders
-  console.log("AdvancedTimeline rendering with", clips.length, "clips and", tracks.length, "tracks");
+  console.log("AdvancedTimeline rendering with", clips.length, "clips and", sortedTracks.length, "tracks");
   console.log("Clips data:", clips);
   console.log("Tracks data:", tracks);
   console.log("Preview cuts:", preview);
@@ -71,17 +74,51 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [hoveredClipId, setHoveredClipId] = useState<string | null>(null);
   const [forceRedraw, setForceRedraw] = useState(0);
+  const [trackScrollOffset, setTrackScrollOffset] = useState(0);
   const zoomTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const zoomAnimationRef = useRef<number | null>(null);
   const thumbnailCache = useRef<Map<string, HTMLImageElement>>(new Map());
 
   // Calculate responsive dimensions
   const timelineWidth = width || containerSize.width || 800;
-  // Calculate track height to match actual track content height - keep tracks compact
+  // Fixed timeline height - use a percentage of viewport height
   const timeRulerHeight = 30; // Keep original time ruler height
-  const trackHeight = Math.max(50, Math.min(65, containerSize.width * 0.06)); // Consistent track height
-  const tracksHeight = tracks.length * trackHeight;
-  const timelineHeight = height || timeRulerHeight + tracksHeight + 200 || 500; // Only increase overall timeline height
+  const trackHeight = 50; // Fixed track height for consistency
+  const maxVisibleTracks = 7; // Maximum number of tracks visible at once (7 * 50px = 350px)
+  const tracksAreaHeight = maxVisibleTracks * trackHeight; // Fixed height for tracks area
+  const timelineHeight = height || timeRulerHeight + tracksAreaHeight + 20 || 400; // Fixed timeline height
+  
+  // Calculate center position for tracks
+  const tracksStartY = timeRulerHeight;
+  const tracksCenterY = tracksStartY + (tracksAreaHeight / 2) - 50; // Move center up by 50px
+  
+  // Function to calculate track Y position based on order (center-based)
+  const getTrackYPosition = (order: number) => {
+    // Find the index of this track in the sorted array
+    const trackIndex = sortedTracks.findIndex(track => track.order === order);
+    if (trackIndex === -1) return tracksCenterY;
+    
+    // Calculate position relative to center
+    // Tracks with order 0 and 1 should be at the center
+    // Negative orders go above center, positive orders go below
+    let relativeIndex = 0;
+    
+    if (order === 0) {
+      // Default video track at center
+      relativeIndex = 0;
+    } else if (order === 1) {
+      // Default audio track just below center
+      relativeIndex = 1;
+    } else if (order < 0) {
+      // Video tracks above center
+      relativeIndex = order; // -1, -2, -3, etc.
+    } else {
+      // Audio tracks below center
+      relativeIndex = order - 1; // 2, 3, 4, etc. become 1, 2, 3
+    }
+    
+    return tracksCenterY + (relativeIndex * trackHeight) - trackScrollOffset;
+  };
 
   // Generate thumbnails when file path changes
   useEffect(() => {
@@ -228,11 +265,12 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       const clipEndX = ((clip.offset + (clip.endTime - clip.startTime)) / effectiveDuration) * (timelineWidth * zoom) - pan;
       
       // Find which track this clip belongs to
-      const trackIndex = tracks.findIndex(track => track.id === clip.trackId);
+      const trackIndex = sortedTracks.findIndex(track => track.id === clip.trackId);
       if (trackIndex === -1) continue;
       
-      // Calculate track position
-      const trackTopY = timeRulerHeight + (trackIndex * trackHeight);
+      // Calculate track position using center-based positioning
+      const track = sortedTracks[trackIndex];
+      const trackTopY = track ? getTrackYPosition(track.order) : timeRulerHeight;
       const trackBottomY = trackTopY + trackHeight;
       
       // Only check within the actual clip area (track area only, not ruler)
@@ -1114,7 +1152,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     }
 
     // Draw next available position indicator
-    const existingClipsOnTrack = clips.filter(clip => clip.trackId === tracks[0].id);
+    const existingClipsOnTrack = clips.filter(clip => clip.trackId === sortedTracks[0].id);
     let nextAvailableOffset = 0;
     
     if (existingClipsOnTrack.length > 0) {
@@ -1138,18 +1176,21 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     }
 
     // Draw track backgrounds with alternating colors for visual differentiation
-    tracks.forEach((_, trackIndex) => {
-      const trackTopY = timeRulerHeight + (trackIndex * trackHeight);
+    sortedTracks.forEach((track, trackIndex) => {
+      const trackTopY = getTrackYPosition(track.order);
       const isEvenTrack = trackIndex % 2 === 0;
       
-      // Draw track background
-      ctx.fillStyle = isEvenTrack ? "#1e293b" : "#0f172a"; // slate-800 and slate-900
-      ctx.fillRect(0, trackTopY, timelineWidth, trackHeight);
-      
-      // Draw track border
-      ctx.strokeStyle = "#334155"; // slate-700
-      ctx.lineWidth = 1;
-      ctx.strokeRect(0, trackTopY, timelineWidth, trackHeight);
+      // Only draw tracks that are visible in the viewport
+      if (trackTopY + trackHeight > timeRulerHeight && trackTopY < timelineHeight) {
+        // Draw track background
+        ctx.fillStyle = isEvenTrack ? "#1e293b" : "#0f172a"; // slate-800 and slate-900
+        ctx.fillRect(0, trackTopY, timelineWidth, trackHeight);
+        
+        // Draw track border
+        ctx.strokeStyle = "#334155"; // slate-700
+        ctx.lineWidth = 1;
+        ctx.strokeRect(0, trackTopY, timelineWidth, trackHeight);
+      }
     });
 
     // Draw clips with their own waveforms and thumbnails
@@ -1176,14 +1217,15 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       const clipWidth = Math.max(1, clipEndX - clipStartX);
       
       // Find which track this clip belongs to
-      const trackIndex = tracks.findIndex(track => track.id === clip.trackId);
+      const trackIndex = sortedTracks.findIndex(track => track.id === clip.trackId);
       if (trackIndex === -1) {
         console.log(`Track not found for clip ${index}, trackId: ${clip.trackId}`);
         return;
       }
       
-      // Calculate track position
-      const trackTopY = timeRulerHeight + (trackIndex * trackHeight);
+      // Calculate track position using center-based positioning
+      const track = sortedTracks[trackIndex];
+      const trackTopY = track ? getTrackYPosition(track.order) : timeRulerHeight;
       
       console.log(`Clip ${index} positioning: startX=${clipStartX}, endX=${clipEndX}, width=${clipWidth}, trackIndex=${trackIndex}, trackTopY=${trackTopY}`);
       
@@ -1624,26 +1666,38 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           console.log(`Custom drop position: x=${x}, y=${y}`);
           
           if (customDragData.type === "media-file" && customDragData.mediaFile && onDropMedia) {
-            // Calculate track index more accurately
-            const trackIndex = Math.max(0, Math.floor((y - timeRulerHeight) / trackHeight));
-            const track = tracks[trackIndex];
+            // Calculate which track the drop position corresponds to
+            let targetTrack: Track | null = null;
+            let minDistance = Infinity;
+            
+            // Find the closest track to the drop position
+            sortedTracks.forEach(track => {
+              const trackY = getTrackYPosition(track.order);
+              const distance = Math.abs(y - (trackY + trackHeight / 2)); // Distance to track center
+              if (distance < minDistance) {
+                minDistance = distance;
+                targetTrack = track;
+              }
+            });
+            
+            const track = targetTrack;
             
             console.log(`Drop position: x=${x}, y=${y}`);
             console.log(`Time ruler height: ${timeRulerHeight}, track height: ${trackHeight}`);
-            console.log(`Calculated track index: ${trackIndex}, available tracks: ${tracks.length}`);
+            console.log(`Available tracks: ${sortedTracks.length}`);
             console.log(`Selected track:`, track);
             
             if (track) {
               const effectiveDuration = getEffectiveDuration();
               const timeOffset = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
               
-              console.log(`Custom dropping on track ${trackIndex}: ${track.id}, time offset: ${timeOffset}`);
-              onDropMedia(customDragData.mediaFile, track.id, Math.max(0, timeOffset), e as any);
+              console.log(`Custom dropping on track: ${(track as Track).id}, time offset: ${timeOffset}`);
+              onDropMedia(customDragData.mediaFile, (track as Track).id, Math.max(0, timeOffset), e as any);
             } else {
-              console.log(`No valid track found at index ${trackIndex}`);
+              console.log(`No valid track found`);
               // Try to drop on the first available track as fallback
-              if (tracks.length > 0) {
-                const fallbackTrack = tracks[0];
+              if (sortedTracks.length > 0) {
+                const fallbackTrack = sortedTracks[0];
                 const effectiveDuration = getEffectiveDuration();
                 const timeOffset = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
                 console.log(`Falling back to first track: ${fallbackTrack.id}, time offset: ${timeOffset}`);
@@ -2008,18 +2062,42 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       {/* Timeline Content with Track Controls */}
       <div className="bg-slate-900 flex">
         {/* Track Controls Sidebar */}
-        <div className="w-56 bg-slate-800 border-r border-slate-700 flex-shrink-0">
+        <div className="w-56 bg-slate-800 border-r border-slate-700 flex-shrink-0 flex flex-col">
           {/* Ruler spacer to align with timeline ruler */}
-          <div style={{ height: `${timeRulerHeight}px` }} className="bg-slate-750 border-b border-slate-700"></div>
-          {tracks.map((track, index) => (
-            <TrackControls
-              key={track.id}
-              track={track}
-              onUpdateTrack={onUpdateTrack || (() => {})}
-              height={trackControlsHeight}
-              index={index}
-            />
-          ))}
+          <div style={{ height: `${timeRulerHeight}px` }} className="bg-slate-750 border-b border-slate-700 flex-shrink-0"></div>
+          
+          {/* Scrollable track controls area */}
+          <div 
+            className="flex-1 overflow-y-auto relative"
+            style={{ height: `${tracksAreaHeight}px` }}
+            onScroll={(e) => {
+              const scrollTop = e.currentTarget.scrollTop;
+              setTrackScrollOffset(scrollTop);
+            }}
+          >
+            {sortedTracks.map((track, index) => {
+              const trackY = getTrackYPosition(track.order);
+              return (
+                <div
+                  key={track.id}
+                  style={{
+                    position: 'absolute',
+                    top: `${trackY - timeRulerHeight}px`,
+                    left: 0,
+                    right: 0,
+                    height: `${trackHeight}px`
+                  }}
+                >
+                  <TrackControls
+                    track={track}
+                    onUpdateTrack={onUpdateTrack || (() => {})}
+                    height={trackControlsHeight}
+                    index={index}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </div>
         
         {/* Timeline Canvas */}
@@ -2076,18 +2154,30 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
                 console.log(`Time ruler height: ${timeRulerHeight}, track height: ${trackHeight}`);
                 
                 // Determine which track the user is dropping onto based on Y position
-                const trackIndex = Math.floor((y - timeRulerHeight) / trackHeight);
-                const track = tracks[trackIndex];
+                let targetTrack: Track | null = null;
+                let minDistance = Infinity;
+                
+                // Find the closest track to the drop position
+                sortedTracks.forEach(track => {
+                  const trackY = getTrackYPosition(track.order);
+                  const distance = Math.abs(y - (trackY + trackHeight / 2)); // Distance to track center
+                  if (distance < minDistance) {
+                    minDistance = distance;
+                    targetTrack = track;
+                  }
+                });
+                
+                const track = targetTrack;
                 
                 if (track) {
                   // Calculate time offset based on x position
                   const effectiveDuration = getEffectiveDuration();
                   const timeOffset = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
                   
-                  console.log(`Dropping on track ${trackIndex}: ${track.id}, time offset: ${timeOffset}`);
-                  onDropMedia(data.mediaFile, track.id, Math.max(0, timeOffset), e);
+                  console.log(`Dropping on track: ${(track as Track).id}, time offset: ${timeOffset}`);
+                  onDropMedia(data.mediaFile, (track as Track).id, Math.max(0, timeOffset), e);
                 } else {
-                  console.log(`No track found at index ${trackIndex}, available tracks: ${tracks.length}`);
+                  console.log(`No track found, available tracks: ${sortedTracks.length}`);
                 }
               } else {
                 console.log("Invalid drop data or missing onDropMedia handler");

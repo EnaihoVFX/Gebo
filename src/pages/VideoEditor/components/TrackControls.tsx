@@ -100,17 +100,20 @@ export function TrackControls({ track, onUpdateTrack, height, index }: TrackCont
       <div className="flex items-center gap-1">
         {/* Enable/Disable and Mute Toggles */}
         <div className="flex items-center gap-0.5">
-          <button
-            onClick={() => onUpdateTrack(track.id, { enabled: !track.enabled })}
-            className={`p-0.5 rounded transition-colors ${
-              track.enabled 
-                ? 'text-white hover:bg-slate-600' 
-                : 'text-slate-500 hover:bg-slate-600 hover:text-slate-300'
-            }`}
-            title={track.enabled ? 'Disable track' : 'Enable track'}
-          >
-            {track.enabled ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-          </button>
+          {/* Visibility control only for video tracks */}
+          {track.type === 'video' && (
+            <button
+              onClick={() => onUpdateTrack(track.id, { enabled: !track.enabled })}
+              className={`p-0.5 rounded transition-colors ${
+                track.enabled 
+                  ? 'text-white hover:bg-slate-600' 
+                  : 'text-slate-500 hover:bg-slate-600 hover:text-slate-300'
+              }`}
+              title={track.enabled ? 'Disable track' : 'Enable track'}
+            >
+              {track.enabled ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+            </button>
+          )}
 
           <button
             onClick={() => onUpdateTrack(track.id, { muted: !track.muted })}
