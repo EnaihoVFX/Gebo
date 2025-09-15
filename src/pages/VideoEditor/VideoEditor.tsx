@@ -26,7 +26,7 @@ import { DeveloperOverlay } from "./components/DeveloperOverlay";
 import Modal from "../../components/Modal";
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
-import useProjectFileStore from '../../stores/projectFileStore';
+import { useProjectFileStore } from '../../stores/projectFileStore';
 
 export default function VideoEditor() {
   console.log("VideoEditor component rendering...");
