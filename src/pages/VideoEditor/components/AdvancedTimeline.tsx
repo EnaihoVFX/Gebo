@@ -80,7 +80,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
   const timelineWidth = width || containerSize.width || 800;
   // Calculate track height to match actual track content height - keep tracks compact
   const timeRulerHeight = 30; // Keep original time ruler height
-  const trackAreaHeight = Math.max(60, Math.min(80, containerSize.width * 0.08)); // Keep original track height
+  const trackAreaHeight = Math.max(50, Math.min(65, containerSize.width * 0.06)); // Reduced track height
   const trackHeight = trackAreaHeight; // Track control height matches track content height
   const tracksHeight = tracks.length * trackHeight;
   const timelineHeight = height || timeRulerHeight + tracksHeight + 200 || 500; // Only increase overall timeline height
@@ -916,7 +916,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
                   }
                   if (segmentPixelWidth > 70) {
                     const segmentDuration = duration / thumbnails.length;
-                    ctx.fillText(`${segmentDuration.toFixed(1)}s`, segmentStartX + 2, y + 24);
+                    ctx.fillText(`${segmentDuration.toFixed(1)}s`, segmentStartX + 2, y + thumbHeight + 8);
                   }
                 }
               }
@@ -1193,7 +1193,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         drawRoundedRect(ctx, clipStartX, timeRulerHeight, clipWidth, trackAreaHeight, clipRadius);
         ctx.stroke();
 
-        // Draw waveform for this clip (below thumbnails in both layering and position)
+        // Draw waveform for this clip (top half only, starting from bottom)
         if (mediaFile.peaks && mediaFile.peaks.length > 0) {
           console.log(`Drawing waveform for clip ${index}: ${mediaFile.peaks.length} peaks, clipWidth: ${clipWidth}`);
           console.log(`First 10 peak values:`, mediaFile.peaks.slice(0, 10));
@@ -1204,26 +1204,34 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           const samplesPerPixel = mediaFile.peaks.length / clipWidth;
           const maxPeak = Math.max(...mediaFile.peaks);
           
-          ctx.fillStyle = "#ffffff";
+          ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
           
-          // Draw more bars with rounded corners
-          const barSpacing = Math.max(1, Math.floor(clipWidth / 400)); // Max 400 bars
+          // Calculate waveform area - leave more space at top for thumbnails
+          const thumbnailSpace = trackAreaHeight * 0.45; // 45% of track height for thumbnails
+          const waveformAreaHeight = trackAreaHeight - thumbnailSpace; // 55% of track height for waveform
+          const waveformStartY = timeRulerHeight + trackAreaHeight; // Start from bottom of track
+          const waveformTopY = timeRulerHeight + thumbnailSpace; // Top of waveform area
+          
+          // Draw more bars with rounded corners for finer detail
+          const barSpacing = Math.max(1, Math.floor(clipWidth / 600)); // Max 600 bars (more bars = thinner)
           const barWidth = Math.max(1, barSpacing - 1);
           
           for (let x = 0; x < clipWidth; x += barSpacing) {
             const sampleIndex = Math.floor(x * samplesPerPixel);
             if (sampleIndex < mediaFile.peaks.length) {
               const amplitude = mediaFile.peaks[sampleIndex];
-              // Position waveform in the lower portion of the track (below thumbnails)
-              const waveformY = timeRulerHeight + trackAreaHeight * 0.75; // Start at 75% down the track
-              // Normalize amplitude and limit height (reduce to 25% of track height)
-              const normalizedAmplitude = maxPeak > 0 ? amplitude / maxPeak : 0;
-              const height = Math.max(2, (normalizedAmplitude * trackAreaHeight * 0.3) / 2);
               
-              // Draw rounded waveform bars
+              // Only use positive amplitude (top half of waveform)
+              const positiveAmplitude = Math.abs(amplitude);
+              const normalizedAmplitude = maxPeak > 0 ? positiveAmplitude / maxPeak : 0;
+              
+              // Calculate bar height - use less of the available waveform area
+              const maxBarHeight = waveformAreaHeight * 0.7; // Use 70% of available height
+              const barHeight = Math.max(2, normalizedAmplitude * maxBarHeight);
+              
+              // Draw waveform bars starting from bottom
               const barX = clipStartX + x;
-              const barY = waveformY - height;
-              const barHeight = height * 2;
+              const barY = waveformStartY - barHeight; // Start from bottom, go up
               
               // Create rounded rectangle
               ctx.beginPath();
@@ -1366,8 +1374,8 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
 
         // Clip name and info
         if (clipWidth > 60) {
-          // Position text in the bottom area, leaving space for waveform and thumbnail
-          const textY = timeRulerHeight + trackAreaHeight - 8;
+          // Position text higher up in the clip area
+          const textY = timeRulerHeight + trackAreaHeight - 12;
           const textX = clipStartX + 4;
           
           // Add selection indicator
@@ -1385,7 +1393,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           // Duration info in right corner
           if (clipWidth > 60) {
             const duration = (clip.endTime - clip.startTime).toFixed(1);
-            ctx.fillStyle = "#e5e7eb";
+            ctx.fillStyle = "#ffffff";
             ctx.font = "11px Arial, sans-serif";
             ctx.textAlign = "right";
             ctx.fillText(`${duration}s`, clipStartX + clipWidth - 4, textY);
