@@ -1,9 +1,12 @@
-import { useState, useRef, useEffect } from "react";
-import { Send, ChevronDown } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import { Send } from "lucide-react";
 import { ChatMessage } from "./ChatMessage";
 import type { ChatMessage as ChatMessageType, Range } from "../../../types";
 
 interface ChatProps {
+  chatId: string;
+  messages: ChatMessageType[];
+  onUpdateMessages: (messages: ChatMessageType[]) => void;
   onExecuteCommand: (command: string) => void;
   previewCuts: Range[];
   acceptedCuts: Range[];
@@ -13,6 +16,9 @@ interface ChatProps {
 }
 
 export function Chat({
+  chatId,
+  messages,
+  onUpdateMessages,
   onExecuteCommand,
   previewCuts,
   acceptedCuts,
@@ -20,20 +26,19 @@ export function Chat({
   onAcceptPlan,
   onRejectPlan,
 }: ChatProps) {
-  const [messages, setMessages] = useState<ChatMessageType[]>([
-    {
-      id: "welcome",
-      type: "assistant",
-      content: "I'm your video editing assistant. I can help you edit videos by removing silence, cutting segments, and more.\n\nTry commands like:\n• `remove silence > 2` - Remove silent parts longer than 2 seconds\n• `tighten silence > 2 leave 150ms` - Shorten long silences to 150ms\n• `cut 12.5 - 14.0` - Cut a specific time range\n• `detect silence` - Find all silent parts\n\nLoad a video file first, then ask me to edit it.",
-      timestamp: new Date(),
-    }
-  ]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [activePromptId, setActivePromptId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Check if this is a new chat (only has welcome message)
+  const isNewChat = messages.length === 1 && messages[0].type === "assistant";
+
+  // Get the active prompt content
+  const activePrompt = activePromptId ? messages.find(m => m.id === activePromptId) : null;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -46,26 +51,56 @@ export function Chat({
     
     if (!hasVideoPreview) {
       scrollToBottom();
-    } else {
-      // Show scroll button when there's a video preview
-      setShowScrollButton(true);
     }
   }, [messages]);
 
-  // Handle scroll events to show/hide scroll button
+  // Track scroll position to determine active prompt
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
 
     const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-      setShowScrollButton(!isNearBottom);
+      const containerRect = container.getBoundingClientRect();
+      const containerTop = containerRect.top;
+      
+      // Threshold: header only shows when bubble is mostly scrolled past
+      const threshold = 60; // pixels past the top of container
+      
+      // Find the user message that should trigger the sticky header
+      let currentPromptId: string | null = null;
+      
+      messageRefs.current.forEach((element, messageId) => {
+        const message = messages.find(m => m.id === messageId);
+        if (message && message.type === "user") {
+          const elementRect = element.getBoundingClientRect();
+          const elementTop = elementRect.top;
+          const elementBottom = elementRect.bottom;
+          
+          // Only show header if the user message has scrolled significantly past the top
+          // The bottom of the message should be well past the container top
+          if (elementBottom < containerTop + threshold) {
+            // Make sure we're not showing a header for a message that's still mostly visible
+            const messageHeight = elementBottom - elementTop;
+            const scrolledPast = containerTop + threshold - elementBottom;
+            
+            // Only show if we've scrolled past at least 30% of the message height
+            if (scrolledPast > messageHeight * 0.3) {
+              currentPromptId = messageId;
+            }
+          }
+        }
+      });
+      
+      setActivePromptId(currentPromptId);
     };
 
     container.addEventListener('scroll', handleScroll);
+    // Don't run initial check - let it be triggered by actual scrolling
+    
     return () => container.removeEventListener('scroll', handleScroll);
-  }, []);
+  }, [messages]);
+
+
 
   const handleSendMessage = async () => {
     if (!inputValue.trim() || isLoading) return;
@@ -77,7 +112,8 @@ export function Chat({
       timestamp: new Date(),
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    const updatedMessages = [...messages, userMessage];
+    onUpdateMessages(updatedMessages);
     const command = inputValue.trim();
     setInputValue("");
     setIsLoading(true);
@@ -138,7 +174,7 @@ export function Chat({
         ] : undefined
       };
 
-      setMessages(prev => [...prev, assistantMessage]);
+      onUpdateMessages([...updatedMessages, assistantMessage]);
       setIsLoading(false);
     }, 1500);
   };
@@ -152,6 +188,8 @@ export function Chat({
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    console.log('Input change:', e.target.value);
+    const cursorPosition = e.target.selectionStart;
     setInputValue(e.target.value);
     
     // Auto-resize textarea
@@ -159,63 +197,114 @@ export function Chat({
       inputRef.current.style.height = "auto";
       inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 120)}px`;
     }
+    
+    // Ensure focus is maintained after state update and preserve cursor position
+    setTimeout(() => {
+      if (inputRef.current && document.activeElement !== inputRef.current) {
+        console.log('Restoring focus after input change');
+        inputRef.current.focus();
+        // Restore cursor position
+        if (cursorPosition !== null) {
+          inputRef.current.setSelectionRange(cursorPosition, cursorPosition);
+        }
+      }
+    }, 0);
   };
 
+  // Input component
+  const InputArea = () => (
+    <div 
+      className="p-2 sm:p-3 lg:p-4 flex gap-2"
+      onClick={(e) => {
+        // Only focus if clicking on the container itself, not on child elements
+        if (e.target === e.currentTarget && inputRef.current) {
+          inputRef.current.focus();
+        }
+      }}
+    >
+      <textarea
+        key="chat-textarea" // Stable key to prevent recreation
+        ref={inputRef}
+        value={inputValue}
+        onChange={handleInputChange}
+        onKeyDown={handleKeyDown}
+        onFocus={(e) => {
+          e.stopPropagation();
+          console.log('Textarea focused');
+        }}
+        onBlur={(e) => {
+          e.stopPropagation();
+          console.log('Textarea blurred - relatedTarget:', e.relatedTarget);
+        }}
+        placeholder="Type a command..."
+        className="flex-1 px-3 py-2 text-sm bg-editor-bg-secondary border border-editor-border-secondary rounded text-editor-text-secondary placeholder-editor-text-muted focus:outline-none focus:border-editor-border-primary resize-none min-h-[40px] max-h-[120px]"
+        rows={1}
+        disabled={isLoading}
+        autoFocus={false}
+      />
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          handleSendMessage();
+        }}
+        disabled={!inputValue.trim() || isLoading}
+        className="px-3 py-2 bg-editor-status-info hover:bg-blue-700 disabled:bg-editor-bg-tertiary text-white rounded transition-colors flex items-center justify-center"
+      >
+        {isLoading ? "..." : <Send className="w-4 h-4" />}
+      </button>
+    </div>
+  );
+
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col h-full min-h-0 chat-container">
+      {/* Input at top for new chats */}
+      {isNewChat && <InputArea />}
+      
+      {/* Sticky Header - Fixed height to prevent layout shift */}
+      <div className="sticky top-0 z-10 bg-gradient-to-b from-transparent to-slate-900 backdrop-blur-sm px-3 py-2 flex items-center transition-all duration-200" style={{ height: activePrompt ? '64px' : '0px', opacity: activePrompt ? 1 : 0, pointerEvents: activePrompt ? 'auto' : 'none', overflow: 'hidden' }}>
+        {activePrompt && (
+          <div className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg w-full">
+            <div className="text-xs whitespace-pre-wrap leading-relaxed text-left text-slate-200 break-words line-clamp-2">
+              {activePrompt.content}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4 space-y-4 relative" ref={messagesContainerRef}>
         {messages.map((message) => (
-          <ChatMessage key={message.id} message={message} />
+          <div
+            key={message.id}
+            ref={(el) => {
+              if (el) {
+                messageRefs.current.set(message.id, el);
+              } else {
+                messageRefs.current.delete(message.id);
+              }
+            }}
+            className="transition-opacity duration-300 opacity-100"
+          >
+            <ChatMessage message={message} />
+          </div>
         ))}
         
         {isLoading && (
           <div className="flex items-center gap-2 text-editor-text-tertiary">
             <div className="flex gap-1">
-              <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"></div>
-              <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: "0.1s" }}></div>
-              <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }}></div>
+              <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce"></div>
+              <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: "0.1s" }}></div>
+              <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }}></div>
             </div>
-            <span className="text-sm">Agent is processing...</span>
+            <span className="text-xs">Agent is processing...</span>
           </div>
         )}
         
         <div ref={messagesEndRef} />
-        
-        {/* Scroll to bottom button */}
-        {showScrollButton && (
-          <button
-            onClick={scrollToBottom}
-            className="absolute bottom-4 right-4 p-2 bg-editor-bg-secondary hover:bg-editor-interactive-hover text-editor-text-secondary rounded-full shadow-lg transition-colors"
-            title="Scroll to bottom"
-          >
-            <ChevronDown className="w-4 h-4" />
-          </button>
-        )}
       </div>
 
-      {/* Input Area */}
-      <div className="p-2 sm:p-3 lg:p-4 border-t border-slate-700 flex gap-2">
-        <textarea
-          ref={inputRef}
-          value={inputValue}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          onFocus={() => console.log('Textarea focused')}
-          onBlur={() => console.log('Textarea blurred')}
-          placeholder="Type a command..."
-          className="flex-1 px-3 py-2 text-sm bg-editor-bg-secondary border border-editor-border-secondary rounded text-editor-text-secondary placeholder-editor-text-muted focus:outline-none focus:border-editor-border-primary resize-none min-h-[40px] max-h-[120px]"
-          rows={1}
-          disabled={isLoading}
-        />
-        <button
-          onClick={handleSendMessage}
-          disabled={!inputValue.trim() || isLoading}
-          className="px-3 py-2 bg-editor-status-info hover:bg-blue-700 disabled:bg-editor-bg-tertiary text-white rounded transition-colors flex items-center justify-center"
-        >
-          {isLoading ? "..." : <Send className="w-4 h-4" />}
-        </button>
-      </div>
+      {/* Input at bottom for existing chats */}
+      {!isNewChat && <InputArea />}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import { flushSync } from "react-dom";
-import { Scissors, Trash2 } from "lucide-react";
+import { Scissors, Trash2, Undo2, Redo2 } from "lucide-react";
 import type { Range, Track, Clip, MediaFile } from "../../../types";
 import { generateThumbnails } from "../../../lib/ffmpeg";
 import { TrackControls } from "./TrackControls";
@@ -28,6 +28,11 @@ interface AdvancedTimelineProps {
   onDropMedia?: (mediaFile: any, trackId: string, offset: number, event?: React.DragEvent) => void;
   // Clip management props
   onDeleteClip?: (clipId: string) => void;
+  // Undo/Redo props
+  onUndo?: () => void;
+  onRedo?: () => void;
+  historyIndex?: number;
+  editHistoryLength?: number;
 }
 
 export interface AdvancedTimelineHandle {
@@ -39,7 +44,7 @@ export interface AdvancedTimelineHandle {
 }
 
 export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimelineProps>(({
-  peaks, duration, accepted, preview, filePath, tracks, clips, mediaFiles, width, height, onSeek, onAddCut, onRemoveCut, onUpdateTrack, onMarkIn, onClearAllCuts, onDropMedia, onDeleteClip,
+  peaks, duration, accepted, preview, filePath, tracks, clips, mediaFiles, width, height, onSeek, onAddCut, onRemoveCut, onUpdateTrack, onMarkIn, onClearAllCuts, onDropMedia, onDeleteClip, onUndo, onRedo, historyIndex, editHistoryLength,
 }, ref) => {
   // Sort tracks by order to ensure proper positioning
   const sortedTracks = [...tracks].sort((a, b) => a.order - b.order);
@@ -58,11 +63,10 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
   const [currentTime, setCurrentTime] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, pan: 0 });
   const [isZooming, setIsZooming] = useState(false);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [isHoveringRuler, setIsHoveringRuler] = useState(false);
+  const [isInteractingWithScrollbar, setIsInteractingWithScrollbar] = useState(false);
   const drawTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
@@ -605,23 +609,18 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
      // Draw enhanced time ruler at the top with gradient background
      // Create gradient background for better visual appeal
      const gradient = ctx.createLinearGradient(0, 0, 0, timeRulerHeight);
-     if (isHoveringRuler || isScrubbing) {
-       gradient.addColorStop(0, "rgba(59, 130, 246, 0.15)"); // Blue gradient top
-       gradient.addColorStop(1, "rgba(59, 130, 246, 0.05)"); // Blue gradient bottom
-     } else {
-       gradient.addColorStop(0, "rgba(30, 30, 30, 0.4)"); // Dark gradient top
-       gradient.addColorStop(1, "rgba(20, 20, 20, 0.2)"); // Dark gradient bottom
-     }
+     gradient.addColorStop(0, "rgba(30, 30, 30, 0.4)"); // Dark gradient top
+     gradient.addColorStop(1, "rgba(20, 20, 20, 0.2)"); // Dark gradient bottom
      ctx.fillStyle = gradient;
      ctx.fillRect(0, 0, timelineWidth, timeRulerHeight);
      
      // Add enhanced border with better styling
-     ctx.strokeStyle = isHoveringRuler || isScrubbing ? "rgba(59, 130, 246, 0.6)" : "rgba(75, 85, 99, 0.4)";
-     ctx.lineWidth = isHoveringRuler || isScrubbing ? 1.5 : 1;
+     ctx.strokeStyle = "rgba(75, 85, 99, 0.4)";
+     ctx.lineWidth = 1;
      ctx.strokeRect(0, 0, timelineWidth, timeRulerHeight);
      
      // Add subtle inner highlight for depth
-     ctx.strokeStyle = isHoveringRuler || isScrubbing ? "rgba(147, 197, 253, 0.3)" : "rgba(107, 114, 128, 0.2)";
+     ctx.strokeStyle = "rgba(107, 114, 128, 0.2)";
      ctx.lineWidth = 0.5;
      ctx.strokeRect(0.5, 0.5, timelineWidth - 1, timeRulerHeight - 1);
     
@@ -813,7 +812,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         if (isMajorMarker) {
           majorMarkerCount++;
           // Major markers - thicker, more prominent
-          ctx.strokeStyle = isHoveringRuler || isScrubbing ? "#93c5fd" : "#9ca3af"; // Light blue when active, gray otherwise
+          ctx.strokeStyle = "#9ca3af"; // Gray color for all major markers
           ctx.lineWidth = 1.5;
           ctx.beginPath();
           ctx.moveTo(x, 0);
@@ -873,7 +872,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
                 ctx.fillText(timeText, textX + 1, textY + 1);
                 
                 // Draw the actual text with high contrast
-                ctx.fillStyle = isHoveringRuler || isScrubbing ? "#ffffff" : "#e5e7eb";
+                ctx.fillStyle = "#e5e7eb";
                 ctx.fillText(timeText, textX, textY);
                 
                 // Update last text position
@@ -883,7 +882,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           }
         } else {
           // Minor markers - thinner, less prominent
-          ctx.strokeStyle = isHoveringRuler || isScrubbing ? "rgba(147, 197, 253, 0.6)" : "rgba(107, 114, 128, 0.4)";
+          ctx.strokeStyle = "rgba(107, 114, 128, 0.4)";
           ctx.lineWidth = 0.8;
           ctx.beginPath();
           ctx.moveTo(x, timeRulerHeight * 0.3); // Start from 30% height
@@ -1088,53 +1087,6 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       }
     }
 
-    // Draw enhanced current time indicator (spans full height) - always show red pin marker
-    if (currentTime >= 0) {
-      const x = (currentTime / effectiveDuration) * (timelineWidth * zoom) - pan;
-      // Always draw pin marker, even if slightly outside visible area (auto-scroll will handle positioning)
-      if (x >= -50 && x < timelineWidth + 50) {
-        // Always use the red pin marker styling (previously scrubbing mode)
-        // Draw glow effect
-        const glowGradient = ctx.createRadialGradient(x, timeRulerHeight / 2, 0, x, timeRulerHeight / 2, 20);
-        glowGradient.addColorStop(0, "rgba(255, 107, 53, 0.3)");
-        glowGradient.addColorStop(0.5, "rgba(255, 107, 53, 0.1)");
-        glowGradient.addColorStop(1, "rgba(255, 107, 53, 0)");
-        ctx.fillStyle = glowGradient;
-        ctx.fillRect(x - 20, 0, 40, timeRulerHeight);
-        
-        // Main line with shadow
-        ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(x + 1, 0);
-        ctx.lineTo(x + 1, timelineHeight);
-        ctx.stroke();
-        
-        ctx.strokeStyle = "#ff6b35"; // Bright orange/red
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, timelineHeight);
-        ctx.stroke();
-        
-        // Enhanced indicator circle with gradient
-        const circleGradient = ctx.createRadialGradient(x, 8, 0, x, 8, 8);
-        circleGradient.addColorStop(0, "#ff8c5a");
-        circleGradient.addColorStop(1, "#ff6b35");
-        ctx.fillStyle = circleGradient;
-        ctx.beginPath();
-        ctx.arc(x, 8, 8, 0, 2 * Math.PI);
-        ctx.fill();
-        
-        // Add white highlight to circle
-        ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
-        ctx.beginPath();
-        ctx.arc(x - 2, 6, 3, 0, 2 * Math.PI);
-        ctx.fill();
-        
-        // Pin marker without time label or background box
-      }
-    }
 
     // Add "No Video" indicator when no video is loaded AND no clips are present
     if ((!duration || duration <= 0) && clips.length === 0) {
@@ -1472,6 +1424,55 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       }
     });
 
+    // Draw enhanced current time indicator (spans full height) - always show red pin marker
+    // This is drawn after clips to ensure it appears on top of them
+    if (currentTime >= 0) {
+      const x = (currentTime / effectiveDuration) * (timelineWidth * zoom) - pan;
+      // Always draw pin marker, even if slightly outside visible area (auto-scroll will handle positioning)
+      if (x >= -50 && x < timelineWidth + 50) {
+        // Always use the red pin marker styling (previously scrubbing mode)
+        // Draw glow effect
+        const glowGradient = ctx.createRadialGradient(x, timeRulerHeight / 2, 0, x, timeRulerHeight / 2, 20);
+        glowGradient.addColorStop(0, "rgba(255, 107, 53, 0.3)");
+        glowGradient.addColorStop(0.5, "rgba(255, 107, 53, 0.1)");
+        glowGradient.addColorStop(1, "rgba(255, 107, 53, 0)");
+        ctx.fillStyle = glowGradient;
+        ctx.fillRect(x - 20, 0, 40, timeRulerHeight);
+        
+        // Main line with shadow
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(x + 1, 0);
+        ctx.lineTo(x + 1, timelineHeight);
+        ctx.stroke();
+        
+        ctx.strokeStyle = "#ff6b35"; // Bright orange/red
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, timelineHeight);
+        ctx.stroke();
+        
+        // Enhanced indicator circle with gradient
+        const circleGradient = ctx.createRadialGradient(x, 8, 0, x, 8, 8);
+        circleGradient.addColorStop(0, "#ff8c5a");
+        circleGradient.addColorStop(1, "#ff6b35");
+        ctx.fillStyle = circleGradient;
+        ctx.beginPath();
+        ctx.arc(x, 8, 8, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Add white highlight to circle
+        ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+        ctx.beginPath();
+        ctx.arc(x - 2, 6, 3, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Pin marker without time label or background box
+      }
+    }
+
     // Border
     ctx.strokeStyle = "#27272a"; // editor-border-accent
     ctx.lineWidth = 1;
@@ -1525,6 +1526,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         cancelAnimationFrame(zoomAnimationRef.current);
         zoomAnimationRef.current = null;
       }
+      
     };
   }, []);
 
@@ -1548,6 +1550,23 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       setSelectedClipId(null);
     }
   }, [clips, selectedClipId]);
+
+  // Note: Removed pan constraint to allow infinite panning
+
+  // Effect to handle global mouse up for scrollbar interaction
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (isInteractingWithScrollbar) {
+        console.log('Global mouse up - ending scrollbar interaction');
+        setIsInteractingWithScrollbar(false);
+      }
+    };
+
+    if (isInteractingWithScrollbar) {
+      document.addEventListener('mouseup', handleGlobalMouseUp);
+      return () => document.removeEventListener('mouseup', handleGlobalMouseUp);
+    }
+  }, [isInteractingWithScrollbar]);
 
   // Redraw timeline when selection changes or force redraw is triggered
   useEffect(() => {
@@ -1781,13 +1800,9 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     const y = e.clientY - rect.top;
     const effectiveDuration = getEffectiveDuration();
     const t = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
+
     
-    if (isDragging) {
-      // Handle panning during drag (allow infinite panning)
-      const deltaX = e.clientX - dragStart.x;
-      const newPan = Math.max(0, dragStart.pan - deltaX);
-      setPan(newPan);
-    } else if (isScrubbing) {
+    if (isScrubbing) {
       // Handle scrubbing - cursor follows mouse and updates time
       setCurrentTime(t);
       ensurePinMarkerVisible(t);
@@ -1815,7 +1830,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         if (isInRuler) {
           e.currentTarget.style.cursor = 'ew-resize';
         } else {
-          e.currentTarget.style.cursor = 'grab';
+          e.currentTarget.style.cursor = 'default';
         }
       }
       
@@ -1870,15 +1885,10 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         // Check if clicking on a clip - if so, don't start dragging
         const clickedClip = findClipAtPosition(x, y, 5);
         if (!clickedClip) {
-          // Start panning mode when clicking in main timeline area (not ruler) and not on a clip
-          setIsDragging(true);
-          setDragStart({ x: e.clientX, pan });
+          // Just deselect clip when clicking in main timeline area (not ruler) and not on a clip
+          setSelectedClipId(null);
         }
       }
-    } else {
-      // Start panning mode for zoom controls
-      setIsDragging(true);
-      setDragStart({ x: e.clientX, pan });
     }
   };
 
@@ -1900,12 +1910,10 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       setShowSelectionPreview(false);
     }
     
-    setIsDragging(false);
     setIsScrubbing(false);
   };
 
   const handleMouseLeave = () => {
-    setIsDragging(false);
     setIsScrubbing(false);
     setIsHoveringRuler(false);
     // Don't reset selection states on mouse leave to avoid interfering with click events
@@ -2004,34 +2012,51 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden w-full">
       {/* Header with Timeline Controls */}
       <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
-        <h3 className="text-sm font-medium text-white">Timeline</h3>
+        <div className="flex items-center gap-1">
+          {/* Undo/Redo Controls */}
+          <button
+            onClick={onUndo}
+            disabled={!historyIndex || historyIndex <= 0}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover transition-colors border-0 p-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Undo (Ctrl+Z)"
+          >
+            <Undo2 className="w-4 h-4 flex-shrink-0" />
+          </button>
+          <button
+            onClick={onRedo}
+            disabled={!editHistoryLength || !historyIndex || historyIndex >= editHistoryLength - 1}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover transition-colors border-0 p-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Redo (Ctrl+Y)"
+          >
+            <Redo2 className="w-4 h-4 flex-shrink-0" />
+          </button>
+        </div>
         
         {/* Timeline Controls */}
         <div className="flex items-center gap-1">
           
-          
           {/* Zoom Controls */}
           <button
             onClick={handleZoomIn}
-            className={`p-1 text-slate-400 hover:text-white transition-colors rounded ${isZooming ? 'opacity-50' : ''}`}
-            title="Zoom In"
             disabled={isZooming}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover transition-colors border-0 p-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Zoom In"
           >
             <span className="w-4 h-4 flex items-center justify-center text-sm font-medium">+</span>
           </button>
           <button
             onClick={handleZoomOut}
-            className={`p-1 text-slate-400 hover:text-white transition-colors rounded ${isZooming ? 'opacity-50' : ''}`}
-            title="Zoom Out"
             disabled={isZooming}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover transition-colors border-0 p-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Zoom Out"
           >
             <span className="w-4 h-4 flex items-center justify-center text-sm font-medium">-</span>
           </button>
           <button
             onClick={handleResetZoom}
-            className={`p-1 text-slate-400 hover:text-white transition-colors rounded ${isZooming ? 'opacity-50' : ''}`}
-            title="Reset Zoom"
             disabled={isZooming}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover transition-colors border-0 p-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Reset Zoom"
           >
             <span className="w-4 h-4 flex items-center justify-center text-sm font-medium">⌂</span>
           </button>
@@ -2042,18 +2067,18 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           {/* Cut Management Tools */}
           <button
             onClick={onMarkIn}
-            className="p-1 text-slate-400 hover:text-white transition-colors rounded"
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover transition-colors border-0 p-0"
             title="Mark In Point"
           >
-            <Scissors className="w-4 h-4" />
+            <Scissors className="w-4 h-4 flex-shrink-0" />
           </button>
           <button
             onClick={onClearAllCuts}
-            className="p-1 text-slate-400 hover:text-white transition-colors rounded"
-            title="Clear All Cuts"
             disabled={accepted.length === 0}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover transition-colors border-0 p-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Clear All Cuts"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="w-4 h-4 flex-shrink-0" />
           </button>
           
         </div>
@@ -2062,7 +2087,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       {/* Timeline Content with Track Controls */}
       <div className="bg-slate-900 flex">
         {/* Track Controls Sidebar */}
-        <div className="w-56 bg-slate-800 border-r border-slate-700 flex-shrink-0 flex flex-col">
+        <div className="w-12 bg-slate-800 border-r border-slate-700 flex-shrink-0 flex flex-col">
           {/* Ruler spacer to align with timeline ruler */}
           <div style={{ height: `${timeRulerHeight}px` }} className="bg-slate-750 border-b border-slate-700 flex-shrink-0"></div>
           
@@ -2100,11 +2125,12 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           </div>
         </div>
         
-        {/* Timeline Canvas */}
-        <div 
-          data-timeline="true"
-          className="flex-1 relative"
-          style={{ height: `${timelineHeight}px` }}
+        {/* Timeline Canvas with Scrollbar */}
+        <div className="flex-1 flex flex-col">
+          <div 
+            data-timeline="true"
+            className="flex-1 relative"
+            style={{ height: `${timelineHeight}px` }}
           onDragOver={(e) => {
             console.log("AdvancedTimeline: Drag over timeline - event fired!");
             e.preventDefault();
@@ -2187,7 +2213,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
             }
           }}
         >
-          <div ref={containerRef} className="w-full h-full">
+          <div ref={containerRef} className="w-full h-full relative">
             <canvas 
               ref={canvasRef} 
               onClick={handleClick}
@@ -2198,7 +2224,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
               onDoubleClick={handleDoubleClick}
               onContextMenu={(e) => e.preventDefault()} // Prevent right-click menu
               tabIndex={0}
-              className={`${isScrubbing ? 'cursor-grabbing' : isSelecting ? 'cursor-crosshair' : isDragOver ? 'cursor-copy' : 'cursor-default'} hover:opacity-95 transition-all duration-200 ease-in-out block w-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50`}
+              className={`${isScrubbing ? 'cursor-grabbing' : isSelecting ? 'cursor-crosshair' : isDragOver ? 'cursor-copy' : 'cursor-default'} transition-all duration-200 ease-in-out block w-full focus:outline-none`}
               style={{ 
                 height: `${timelineHeight}px`, 
                 maxHeight: `${timelineHeight}px`,
@@ -2206,6 +2232,44 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
                 backgroundColor: isDragOver ? 'rgba(59, 130, 246, 0.1)' : 'transparent'
               }}
             />
+            
+            {/* Horizontal Scrollbar Overlay - Always visible */}
+            <div 
+              className="absolute bottom-0 left-0 right-0 h-12 bg-slate-800/95 backdrop-blur-sm border-t border-slate-700 flex items-center px-4 z-10"
+            >
+              {/* Debug info */}
+              <div className="text-xs text-slate-300 mr-3 font-mono">
+                Pan: {pan.toFixed(0)} | Zoom: {zoom.toFixed(2)}x | Infinite
+              </div>
+              <input
+                type="range"
+                min="0"
+                max={Math.max(1000, timelineWidth * zoom * 2)} // Much larger range for infinite feel
+                value={pan}
+                onMouseDown={() => {
+                  console.log('Scrollbar mouse down - starting interaction');
+                  setIsInteractingWithScrollbar(true);
+                }}
+                onMouseUp={() => {
+                  console.log('Scrollbar mouse up - ending interaction');
+                  setIsInteractingWithScrollbar(false);
+                }}
+                onChange={(e) => {
+                  const newPan = Number(e.target.value);
+                  console.log('Infinite scrollbar pan change:', { 
+                    newPan, 
+                    max: Math.max(1000, timelineWidth * zoom * 2), 
+                    timelineWidth, 
+                    zoom
+                  });
+                  setPan(newPan);
+                }}
+                className="flex-1 h-3 bg-slate-700 rounded-lg appearance-none cursor-pointer timeline-scrollbar-overlay"
+                style={{
+                  background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${(pan / Math.max(1000, timelineWidth * zoom * 2)) * 100}%, #475569 ${(pan / Math.max(1000, timelineWidth * zoom * 2)) * 100}%, #475569 100%)`
+                }}
+              />
+            </div>
           </div>
 
           {/* Drag indicator */}
@@ -2222,6 +2286,8 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
               <span className="text-xs">Generating thumbnails...</span>
             </div>
           )}
+          </div>
+          
         </div>
       </div>
     </div>

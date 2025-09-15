@@ -92,3 +92,11 @@ export type Clip = {
   trackId: string;
   offset: number; // Position on the timeline
 };
+
+export type ChatSession = {
+  id: string;
+  name: string;
+  messages: ChatMessage[];
+  createdAt: Date;
+  lastActivity: Date;
+};
