@@ -1913,3 +1913,5 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     </div>
   );
 });
+
+AdvancedTimeline.displayName = 'AdvancedTimeline';

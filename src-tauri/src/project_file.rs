@@ -182,14 +182,27 @@ impl ProjectState {
 
     /// Acquire a file handle with exclusive access to prevent deletion
     fn acquire_file_handle(path: &Path) -> Result<File> {
-        use std::os::windows::fs::OpenOptionsExt;
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .share_mode(0)  // No sharing - exclusive access
+                .open(path)
+                .with_context(|| format!("failed to acquire exclusive file handle for {:?}", path))
+        }
         
-        OpenOptions::new()
-            .read(true)
-            .write(true)
-            .share_mode(0)  // No sharing - exclusive access
-            .open(path)
-            .with_context(|| format!("failed to acquire exclusive file handle for {:?}", path))
+        #[cfg(not(target_os = "windows"))]
+        {
+            // On non-Windows systems, just open with read/write access
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)
+                .with_context(|| format!("failed to acquire file handle for {:?}", path))
+        }
     }
 
     /// Load a project from path and create state with file locking
