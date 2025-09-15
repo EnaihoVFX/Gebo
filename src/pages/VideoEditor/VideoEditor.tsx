@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { exportCutlist } from "../../lib/ffmpeg";
 import type { Range, PlayerHandle, Track, Clip } from "../../types";
 import { Player } from "./components/Player";
@@ -308,19 +308,32 @@ export default function VideoEditor() {
     log(`Added new ${type} track: ${newTrack.name}`);
   };
 
-  const deleteTrack = (trackId: string) => {
-    const track = tracks.find(t => t.id === trackId);
-    if (track) {
-      setTracks(prevTracks => prevTracks.filter(t => t.id !== trackId));
-      log(`Deleted track: ${track.name}`);
+  // Function to automatically delete empty tracks
+  const deleteEmptyTracks = useCallback(() => {
+    const tracksWithClips = new Set(clips.map(clip => clip.trackId));
+    const emptyTracks = tracks.filter(track => !tracksWithClips.has(track.id));
+    
+    // Don't delete the last track, even if it's empty
+    if (emptyTracks.length > 0 && tracks.length > 1) {
+      const tracksToDelete = emptyTracks.slice(0, -1); // Keep at least one track
+      
+      if (tracksToDelete.length > 0) {
+        setTracks(prevTracks => prevTracks.filter(track => !tracksToDelete.some(t => t.id === track.id)));
+        log(`Automatically deleted ${tracksToDelete.length} empty track(s): ${tracksToDelete.map(t => t.name).join(', ')}`);
+      }
     }
-  };
+  }, [clips, tracks, log]);
 
   const deleteClip = (clipId: string) => {
     const clip = clips.find(c => c.id === clipId);
     if (clip) {
       setClips(prevClips => prevClips.filter(c => c.id !== clipId));
       log(`Deleted clip: ${clip.name}`);
+      
+      // Check if we need to delete empty tracks after removing this clip
+      setTimeout(() => {
+        deleteEmptyTracks();
+      }, 0);
     }
   };
 
@@ -503,6 +516,11 @@ export default function VideoEditor() {
 
     return () => clearInterval(interval);
   }, []);
+
+  // Automatically delete empty tracks when clips change
+  useEffect(() => {
+    deleteEmptyTracks();
+  }, [deleteEmptyTracks]);
 
   const duration = probe?.duration || 0;
 
@@ -842,7 +860,6 @@ export default function VideoEditor() {
               onRemoveCut={handleRemoveCut}
               onUpdateTrack={updateTrack}
               onAddTrack={addTrack}
-              onDeleteTrack={deleteTrack}
               onDropMedia={handleDropMedia}
               onDeleteClip={deleteClip}
             />

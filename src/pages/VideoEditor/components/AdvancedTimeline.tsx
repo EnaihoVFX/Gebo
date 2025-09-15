@@ -20,7 +20,6 @@ interface AdvancedTimelineProps {
   onAddCut?: (range: Range) => void;
   onRemoveCut?: (index: number) => void;
   onUpdateTrack?: (trackId: string, updates: Partial<Track>) => void;
-  onDeleteTrack?: (trackId: string) => void;
   onAddTrack?: (type: Track['type']) => void;
   // Cut management props
   onMarkIn?: () => void;
@@ -40,7 +39,7 @@ export interface AdvancedTimelineHandle {
 }
 
 export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimelineProps>(({
-  peaks, duration, accepted, preview, filePath, tracks, clips, mediaFiles, width, height, onSeek, onAddCut, onRemoveCut, onUpdateTrack, onDeleteTrack, onMarkIn, onClearAllCuts, onDropMedia, onDeleteClip,
+  peaks, duration, accepted, preview, filePath, tracks, clips, mediaFiles, width, height, onSeek, onAddCut, onRemoveCut, onUpdateTrack, onMarkIn, onClearAllCuts, onDropMedia, onDeleteClip,
 }, ref) => {
   // Debug: Log when component renders
   console.log("AdvancedTimeline rendering with", clips.length, "clips and", tracks.length, "tracks");
@@ -80,8 +79,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
   const timelineWidth = width || containerSize.width || 800;
   // Calculate track height to match actual track content height - keep tracks compact
   const timeRulerHeight = 30; // Keep original time ruler height
-  const trackAreaHeight = Math.max(50, Math.min(65, containerSize.width * 0.06)); // Reduced track height
-  const trackHeight = trackAreaHeight; // Track control height matches track content height
+  const trackHeight = Math.max(50, Math.min(65, containerSize.width * 0.06)); // Consistent track height
   const tracksHeight = tracks.length * trackHeight;
   const timelineHeight = height || timeRulerHeight + tracksHeight + 200 || 500; // Only increase overall timeline height
 
@@ -229,11 +227,19 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       const clipStartX = (clip.offset / effectiveDuration) * (timelineWidth * zoom) - pan;
       const clipEndX = ((clip.offset + (clip.endTime - clip.startTime)) / effectiveDuration) * (timelineWidth * zoom) - pan;
       
+      // Find which track this clip belongs to
+      const trackIndex = tracks.findIndex(track => track.id === clip.trackId);
+      if (trackIndex === -1) continue;
+      
+      // Calculate track position
+      const trackTopY = timeRulerHeight + (trackIndex * trackHeight);
+      const trackBottomY = trackTopY + trackHeight;
+      
       // Only check within the actual clip area (track area only, not ruler)
       const expandedStartX = clipStartX - tolerance;
       const expandedEndX = clipEndX + tolerance;
-      const expandedTopY = timeRulerHeight + tolerance; // Start below the ruler
-      const expandedBottomY = timeRulerHeight + trackAreaHeight - tolerance;
+      const expandedTopY = trackTopY + tolerance;
+      const expandedBottomY = trackBottomY - tolerance;
       
       // Check if click is within expanded bounds
       if (x >= expandedStartX && x <= expandedEndX && y >= expandedTopY && y <= expandedBottomY) {
@@ -242,7 +248,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     }
     
     return null;
-  }, [clips, getEffectiveDuration, timelineWidth, zoom, pan, timeRulerHeight, trackAreaHeight]);
+  }, [clips, tracks, trackHeight, getEffectiveDuration, timelineWidth, zoom, pan, timeRulerHeight]);
 
   // Get cached thumbnail or create new one
   const getCachedThumbnail = useCallback((base64Data: string, index: number): Promise<HTMLImageElement> => {
@@ -552,9 +558,9 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     // const visibleEnd = Math.min(timelineWidth * zoom, pan + timelineWidth);
 
     // Draw time ruler at the top (infinite across entire timeline)
-    // Use the same timeRulerHeight and trackAreaHeight as calculated above
-    const waveformHeight = trackAreaHeight * 0.3; // 30% of track area for waveform
-    const thumbnailAreaHeight = trackAreaHeight - waveformHeight; // Remaining for thumbnails
+    // Use the same timeRulerHeight and trackHeight as calculated above
+    const waveformHeight = trackHeight * 0.3; // 30% of track area for waveform
+    const thumbnailAreaHeight = trackHeight - waveformHeight; // Remaining for thumbnails
     
     
     
@@ -1125,11 +1131,26 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
         ctx.moveTo(nextPosX, timeRulerHeight);
-        ctx.lineTo(nextPosX, timeRulerHeight + trackAreaHeight);
+        ctx.lineTo(nextPosX, timeRulerHeight + trackHeight);
         ctx.stroke();
         ctx.setLineDash([]); // Reset dash pattern
       }
     }
+
+    // Draw track backgrounds with alternating colors for visual differentiation
+    tracks.forEach((_, trackIndex) => {
+      const trackTopY = timeRulerHeight + (trackIndex * trackHeight);
+      const isEvenTrack = trackIndex % 2 === 0;
+      
+      // Draw track background
+      ctx.fillStyle = isEvenTrack ? "#1e293b" : "#0f172a"; // slate-800 and slate-900
+      ctx.fillRect(0, trackTopY, timelineWidth, trackHeight);
+      
+      // Draw track border
+      ctx.strokeStyle = "#334155"; // slate-700
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0, trackTopY, timelineWidth, trackHeight);
+    });
 
     // Draw clips with their own waveforms and thumbnails
     console.log(`Drawing ${clips.length} clips`);
@@ -1154,11 +1175,21 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       const clipEndX = ((clip.offset + (clip.endTime - clip.startTime)) / effectiveDuration) * (timelineWidth * zoom) - pan;
       const clipWidth = Math.max(1, clipEndX - clipStartX);
       
-      console.log(`Clip ${index} positioning: startX=${clipStartX}, endX=${clipEndX}, width=${clipWidth}`);
+      // Find which track this clip belongs to
+      const trackIndex = tracks.findIndex(track => track.id === clip.trackId);
+      if (trackIndex === -1) {
+        console.log(`Track not found for clip ${index}, trackId: ${clip.trackId}`);
+        return;
+      }
+      
+      // Calculate track position
+      const trackTopY = timeRulerHeight + (trackIndex * trackHeight);
+      
+      console.log(`Clip ${index} positioning: startX=${clipStartX}, endX=${clipEndX}, width=${clipWidth}, trackIndex=${trackIndex}, trackTopY=${trackTopY}`);
       
       // Only draw if clip is visible
       if (clipEndX > 0 && clipStartX < timelineWidth) {
-        console.log(`Drawing visible clip ${index} at (${clipStartX}, ${timeRulerHeight}) with width ${clipWidth}`);
+        console.log(`Drawing visible clip ${index} at (${clipStartX}, ${trackTopY}) with width ${clipWidth}`);
         
         // Clip background - different colors for selected, hovered, and normal clips
         const isSelected = selectedClipId === clip.id;
@@ -1174,7 +1205,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         
         // Draw rounded rectangle for clip background
         const clipRadius = 6; // Adjust this value to control roundness
-        drawRoundedRect(ctx, clipStartX, timeRulerHeight, clipWidth, trackAreaHeight, clipRadius);
+        drawRoundedRect(ctx, clipStartX, trackTopY, clipWidth, trackHeight, clipRadius);
         ctx.fill();
 
         // Clip border - different styles for selected, hovered, and normal clips
@@ -1190,7 +1221,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         }
         
         // Draw rounded rectangle border
-        drawRoundedRect(ctx, clipStartX, timeRulerHeight, clipWidth, trackAreaHeight, clipRadius);
+        drawRoundedRect(ctx, clipStartX, trackTopY, clipWidth, trackHeight, clipRadius);
         ctx.stroke();
 
         // Draw waveform for this clip (top half only, starting from bottom)
@@ -1200,17 +1231,15 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           console.log(`Max peak value:`, Math.max(...mediaFile.peaks));
           console.log(`Min peak value:`, Math.min(...mediaFile.peaks));
           
-          const clipDuration = clip.endTime - clip.startTime;
           const samplesPerPixel = mediaFile.peaks.length / clipWidth;
           const maxPeak = Math.max(...mediaFile.peaks);
           
           ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
           
           // Calculate waveform area - leave more space at top for thumbnails
-          const thumbnailSpace = trackAreaHeight * 0.45; // 45% of track height for thumbnails
-          const waveformAreaHeight = trackAreaHeight - thumbnailSpace; // 55% of track height for waveform
-          const waveformStartY = timeRulerHeight + trackAreaHeight; // Start from bottom of track
-          const waveformTopY = timeRulerHeight + thumbnailSpace; // Top of waveform area
+          const thumbnailSpace = trackHeight * 0.45; // 45% of track height for thumbnails
+          const waveformAreaHeight = trackHeight - thumbnailSpace; // 55% of track height for waveform
+          const waveformStartY = trackTopY + trackHeight; // Start from bottom of track
           
           // Draw more bars with rounded corners for finer detail
           const barSpacing = Math.max(1, Math.floor(clipWidth / 600)); // Max 600 bars (more bars = thinner)
@@ -1245,7 +1274,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           ctx.fillStyle = "#ffffff";
           ctx.font = "24px Arial, sans-serif";
           ctx.textAlign = "center";
-          ctx.fillText("♪", clipStartX + clipWidth / 2, timeRulerHeight + trackAreaHeight * 0.75 + 8);
+          ctx.fillText("♪", clipStartX + clipWidth / 2, trackTopY + trackHeight * 0.75 + 8);
           ctx.textAlign = "left"; // Reset alignment
         }
 
@@ -1259,12 +1288,11 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         });
         
         if (mediaFile.type === 'video' && clipWidth > 100) {
-          const thumbnailHeight = Math.min(trackAreaHeight * 0.9, 40); // Back to original size for compact tracks
+          const thumbnailHeight = Math.min(trackHeight * 0.9, 40); // Back to original size for compact tracks
           
           // Calculate which thumbnails to show based on clip position and duration
           const clipDuration = clip.endTime - clip.startTime;
           const clipStartTime = clip.offset;
-          const clipEndTime = clip.offset + clipDuration;
           
           // Calculate which thumbnails correspond to this time segment
           const totalDuration = mediaFile.duration;
@@ -1282,7 +1310,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           // Draw filmstrip thumbnails across the clip
           for (let i = 0; i < thumbnailCount; i++) {
             const thumbX = clipStartX + 4 + (i * segmentThumbnailWidth);
-            const thumbY = timeRulerHeight + 4;
+            const thumbY = trackTopY + 4;
             
             // Try to use actual thumbnails if available
             if (mediaFile.thumbnails && mediaFile.thumbnails.length > 0) {
@@ -1375,7 +1403,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         // Clip name and info
         if (clipWidth > 60) {
           // Position text higher up in the clip area
-          const textY = timeRulerHeight + trackAreaHeight - 12;
+          const textY = trackTopY + trackHeight - 12;
           const textX = clipStartX + 4;
           
           // Add selection indicator
@@ -1387,8 +1415,8 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           }
           
           // If there's a thumbnail, position text to the right of it
-          const thumbnailWidth = mediaFile.type === 'video' && clipWidth > 80 ? 
-            Math.min(trackAreaHeight * 0.9, 40) * (mediaFile.width / mediaFile.height) + 8 : 0; // Back to original size
+          // const thumbnailWidth = mediaFile.type === 'video' && clipWidth > 80 ? 
+          //   Math.min(trackHeight * 0.9, 40) * (mediaFile.width / mediaFile.height) + 8 : 0; // Back to original size
           
           // Duration info in right corner
           if (clipWidth > 60) {
@@ -1914,7 +1942,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
   }, [currentTime, duration, onSeek, ensurePinMarkerVisible]);
 
   // Calculate track controls height
-  const trackControlsHeight = trackAreaHeight; // Track control height matches track content height
+  const trackControlsHeight = trackHeight; // Track control height matches track content height
 
   // Drag and drop handlers are now inlined in the JSX for better debugging
 
@@ -1983,13 +2011,13 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         <div className="w-56 bg-slate-800 border-r border-slate-700 flex-shrink-0">
           {/* Ruler spacer to align with timeline ruler */}
           <div style={{ height: `${timeRulerHeight}px` }} className="bg-slate-750 border-b border-slate-700"></div>
-          {tracks.map((track) => (
+          {tracks.map((track, index) => (
             <TrackControls
               key={track.id}
               track={track}
               onUpdateTrack={onUpdateTrack || (() => {})}
-              onDeleteTrack={onDeleteTrack || (() => {})}
               height={trackControlsHeight}
+              index={index}
             />
           ))}
         </div>
