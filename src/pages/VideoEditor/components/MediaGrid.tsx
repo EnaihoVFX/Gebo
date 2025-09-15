@@ -13,6 +13,7 @@ export function MediaGrid({ mediaFiles, onAddMedia, onRemoveMedia, onDragStart }
   
   // Debug: Log when component renders
   console.log("MediaGrid rendering with", mediaFiles.length, "media files");
+  console.log("onAddMedia function:", typeof onAddMedia, onAddMedia);
   
 
   const handleDragStart = useCallback((mediaFile: MediaFile, event: React.DragEvent) => {
@@ -69,16 +70,23 @@ export function MediaGrid({ mediaFiles, onAddMedia, onRemoveMedia, onDragStart }
   return (
     <div className="h-full flex flex-col">
       {/* Media Grid */}
-      <div className="flex-1 overflow-y-auto p-3 min-h-0">
+      <div className="flex-1 overflow-y-auto p-3 min-h-0 relative">
         {mediaFiles.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
+          <div className="flex flex-col items-center justify-center h-full text-center relative">
             <div className="w-12 h-12 mx-auto mb-3 rounded-lg bg-slate-700 flex items-center justify-center">
               <Video className="w-6 h-6 text-slate-400" />
             </div>
             <p className="text-sm text-slate-400 mb-4">No media files loaded</p>
             <button
-              onClick={onAddMedia}
-              className="px-4 py-2 bg-editor-status-info text-white rounded-lg hover:bg-blue-700 transition-colors text-sm flex items-center gap-2"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log("Add Media button clicked");
+                console.log("Add Media button was clicked!");
+                onAddMedia();
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm flex items-center gap-2 relative z-50 cursor-pointer pointer-events-auto"
+              style={{ zIndex: 9999 }}
             >
               <Plus className="w-4 h-4" />
               Add Media Files

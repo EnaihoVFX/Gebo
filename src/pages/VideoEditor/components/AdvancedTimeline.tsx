@@ -36,6 +36,7 @@ export interface AdvancedTimelineHandle {
   zoomOut: () => void;
   resetZoom: () => void;
   isZooming: boolean;
+  zoomLevel: number;
 }
 
 export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimelineProps>(({
@@ -43,6 +44,8 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
 }, ref) => {
   // Debug: Log when component renders
   console.log("AdvancedTimeline rendering with", clips.length, "clips and", tracks.length, "tracks");
+  console.log("Clips data:", clips);
+  console.log("Tracks data:", tracks);
   console.log("Preview cuts:", preview);
   console.log("Accepted cuts:", accepted);
   
@@ -58,6 +61,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
   const [isZooming, setIsZooming] = useState(false);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [isHoveringRuler, setIsHoveringRuler] = useState(false);
+  const drawTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<number | null>(null);
@@ -211,6 +215,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     return 60; // Default fallback
   }, [duration, clips]);
 
+
   // Helper function to find clip at coordinates with tolerance
   const findClipAtPosition = useCallback((x: number, y: number, tolerance: number = 5) => {
     const effectiveDuration = getEffectiveDuration();
@@ -325,6 +330,32 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       };
     }
   }, []);
+
+  // Simple, robust auto-scroll function
+  const ensurePinMarkerVisible = useCallback((newCurrentTime: number) => {
+    const effectiveDuration = getEffectiveDuration();
+    const pinMarkerX = (newCurrentTime / effectiveDuration) * (timelineWidth * zoom) - pan;
+    
+    // Only auto-scroll when pin marker is actually going off-screen
+    const leftEdge = 0;
+    const rightEdge = timelineWidth;
+    
+    let newPan = pan;
+    
+    // If pin marker is going off the left edge, move it to 20% from left
+    if (pinMarkerX < leftEdge) {
+      newPan = Math.max(0, (newCurrentTime / effectiveDuration) * (timelineWidth * zoom) - (timelineWidth * 0.2));
+    }
+    // If pin marker is going off the right edge, move it to 80% from left
+    else if (pinMarkerX > rightEdge) {
+      newPan = (newCurrentTime / effectiveDuration) * (timelineWidth * zoom) - (timelineWidth * 0.8);
+    }
+    
+    // Only update if we actually need to move
+    if (newPan !== pan) {
+      setPan(newPan);
+    }
+  }, [pan, timelineWidth, zoom, getEffectiveDuration]);
 
   // Robust zoom utility with comprehensive safety checks
   // Smooth zoom animation function
@@ -461,8 +492,9 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     zoomIn: handleZoomIn,
     zoomOut: handleZoomOut,
     resetZoom: handleResetZoom,
-    isZooming: isZooming
-  }), [handleZoomIn, handleZoomOut, handleResetZoom, isZooming]);
+    isZooming: isZooming,
+    zoomLevel: zoom
+  }), [handleZoomIn, handleZoomOut, handleResetZoom, isZooming, zoom]);
 
   const drawTimeline = useCallback(() => {
     const canvas = canvasRef.current;
@@ -477,6 +509,12 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     // Validate zoom and pan values before rendering
     if (!isFinite(zoom) || zoom <= 0 || !isFinite(pan) || pan < 0) {
       console.warn('Invalid zoom/pan values, skipping render:', { zoom, pan });
+      return;
+    }
+
+    // Additional safety checks
+    if (!timelineWidth || timelineWidth <= 0 || !timelineHeight || timelineHeight <= 0) {
+      console.warn('Invalid timeline dimensions, skipping render:', { timelineWidth, timelineHeight });
       return;
     }
 
@@ -502,6 +540,8 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     // Use the same timeRulerHeight and trackAreaHeight as calculated above
     const waveformHeight = trackAreaHeight * 0.3; // 30% of track area for waveform
     const thumbnailAreaHeight = trackAreaHeight - waveformHeight; // Remaining for thumbnails
+    
+    
     
      // Draw enhanced time ruler at the top with gradient background
      // Create gradient background for better visual appeal
@@ -539,21 +579,42 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     const pixelsPerSecond = (timelineWidth * zoom) / effectiveDuration;
     let timeInterval;
     
-    if (pixelsPerSecond > 100) {
-      timeInterval = 0.1; // 100ms intervals when very zoomed in
+    // Safety check for valid pixelsPerSecond
+    if (!isFinite(pixelsPerSecond) || pixelsPerSecond <= 0) {
+      timeInterval = 1; // Default to 1 second intervals
+    } else if (pixelsPerSecond > 2000) {
+      timeInterval = 0.005; // 5ms intervals when extremely zoomed in (2000%+)
+    } else if (pixelsPerSecond > 1000) {
+      timeInterval = 0.01; // 10ms intervals when extremely zoomed in (1000%+)
+    } else if (pixelsPerSecond > 800) {
+      timeInterval = 0.02; // 20ms intervals when very zoomed in (800%+)
+    } else if (pixelsPerSecond > 600) {
+      timeInterval = 0.05; // 50ms intervals when very zoomed in (600%+)
+    } else if (pixelsPerSecond > 400) {
+      timeInterval = 0.1; // 100ms intervals when zoomed in (400%+)
+    } else if (pixelsPerSecond > 300) {
+      timeInterval = 0.2; // 200ms intervals when zoomed in (300%+)
+    } else if (pixelsPerSecond > 200) {
+      timeInterval = 0.5; // 500ms intervals when zoomed in (200%+)
+    } else if (pixelsPerSecond > 100) {
+      timeInterval = 1; // 1 second intervals (100%+)
     } else if (pixelsPerSecond > 50) {
-      timeInterval = 0.5; // 500ms intervals when zoomed in
+      timeInterval = 2; // 2 second intervals (50%+)
     } else if (pixelsPerSecond > 20) {
-      timeInterval = 1; // 1 second intervals
+      timeInterval = 5; // 5 second intervals (20%+)
     } else if (pixelsPerSecond > 10) {
-      timeInterval = 2; // 2 second intervals
+      timeInterval = 10; // 10 second intervals (10%+)
     } else if (pixelsPerSecond > 5) {
-      timeInterval = 5; // 5 second intervals
+      timeInterval = 15; // 15 second intervals (5%+)
     } else if (pixelsPerSecond > 2) {
-      timeInterval = 10; // 10 second intervals
+      timeInterval = 30; // 30 second intervals (2%+)
+    } else if (pixelsPerSecond > 1) {
+      timeInterval = 60; // 60 second intervals (1%+)
     } else {
-      timeInterval = 30; // 30 second intervals when very zoomed out
+      timeInterval = 120; // 120 second intervals when very zoomed out (<1%)
     }
+    
+    
     
     // Calculate visible time range for performance
     const visibleStartTime = (pan / (timelineWidth * zoom)) * effectiveDuration;
@@ -566,19 +627,132 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     // Find the first marker time that's >= extendedStartTime
     const firstMarkerTime = Math.floor(extendedStartTime / timeInterval) * timeInterval;
     
+    // Debug information for zoom levels
+    if (zoom > 3) {
+      console.log(`Timeline debug - Zoom: ${(zoom * 100).toFixed(0)}%, PixelsPerSecond: ${pixelsPerSecond.toFixed(1)}, TimeInterval: ${timeInterval}s, ExtendedRange: ${extendedStartTime.toFixed(2)}s to ${extendedEndTime.toFixed(2)}s`);
+    }
+    
     // Draw enhanced markers in the extended visible range (infinite beyond video duration)
+    let markerCount = 0;
+    let majorMarkerCount = 0;
+    let lastTextX = -Infinity; // Track last text position to prevent overlapping
+    
+    // Performance optimization for Tauri: limit markers at extreme zoom levels
+    // Much higher limits to prevent "holes" in the timeline - only limit when absolutely necessary
+    const maxMarkers = pixelsPerSecond > 2000 ? 2000 : pixelsPerSecond > 1000 ? 3000 : pixelsPerSecond > 800 ? 4000 : pixelsPerSecond > 600 ? 5000 : pixelsPerSecond > 400 ? 6000 : pixelsPerSecond > 200 ? 8000 : 10000;
+    
+    // Adaptive minimum text spacing based on zoom level
+    let minTextSpacing;
+    if (pixelsPerSecond > 2000) {
+      minTextSpacing = 12; // Very tight spacing at extreme zoom (2000%+)
+    } else if (pixelsPerSecond > 1000) {
+      minTextSpacing = 15; // Very tight spacing at extreme zoom (1000%+)
+    } else if (pixelsPerSecond > 800) {
+      minTextSpacing = 18; // Tight spacing at high zoom (800%+)
+    } else if (pixelsPerSecond > 600) {
+      minTextSpacing = 20; // Tight spacing at high zoom (600%+)
+    } else if (pixelsPerSecond > 400) {
+      minTextSpacing = 22; // Medium spacing at medium-high zoom (400%+)
+    } else if (pixelsPerSecond > 200) {
+      minTextSpacing = 25; // Medium spacing at medium-high zoom (200%+)
+    } else if (pixelsPerSecond > 100) {
+      minTextSpacing = 30; // Medium spacing at medium zoom (100%+)
+    } else if (pixelsPerSecond > 50) {
+      minTextSpacing = 35; // Normal spacing at normal zoom (50%+)
+    } else if (pixelsPerSecond > 20) {
+      minTextSpacing = 40; // More spacing when zoomed out (20%+)
+    } else if (pixelsPerSecond > 10) {
+      minTextSpacing = 50; // More spacing when zoomed out (10%+)
+    } else if (pixelsPerSecond > 5) {
+      minTextSpacing = 60; // More spacing when zoomed out (5%+)
+    } else if (pixelsPerSecond > 2) {
+      minTextSpacing = 70; // More spacing when zoomed out (2%+)
+    } else if (pixelsPerSecond > 1) {
+      minTextSpacing = 80; // More spacing when zoomed out (1%+)
+    } else {
+      minTextSpacing = 90; // Maximum spacing when very zoomed out (<1%)
+    }
+    
     for (let time = firstMarkerTime; time <= extendedEndTime; time += timeInterval) {
+      // Safety check for valid time values
+      if (!isFinite(time) || time < 0) continue;
+      
       // Calculate x position - this allows times beyond video duration
       const x = (time / effectiveDuration) * (timelineWidth * zoom) - pan;
       
-      // Only draw if marker is in extended visible range to prevent lag
+      // Safety check for valid x position
+      if (!isFinite(x)) continue;
+      
+      // Only process markers in extended visible range to prevent lag
       if (x >= -100 && x < timelineWidth + 100) {
-        // Determine if this is a major marker (every 5th marker, or at 0)
-        const majorInterval = timeInterval * 5;
+        markerCount++;
+        
+        // Performance check: only limit when we have too many visible markers
+        if (markerCount >= maxMarkers) {
+          console.warn(`Marker limit reached at ${markerCount} markers, stopping at time ${time.toFixed(3)}s`);
+          break;
+        }
+        // Determine if this is a major marker - simplified and more consistent logic
+        let majorInterval;
+        const pixelsPerSecond = (timelineWidth * zoom) / effectiveDuration;
+        
+        // Calculate major interval based on time interval and zoom level
+        // Use standard, useful time increments for better readability
+        if (timeInterval <= 0.005) {
+          // Very small intervals (5ms) - show every 20th marker (100ms)
+          majorInterval = 0.1;
+        } else if (timeInterval <= 0.01) {
+          // Very small intervals (10ms) - show every 10th marker (100ms)
+          majorInterval = 0.1;
+        } else if (timeInterval <= 0.02) {
+          // Small intervals (20ms) - show every 5th marker (100ms)
+          majorInterval = 0.1;
+        } else if (timeInterval <= 0.05) {
+          // Small intervals (50ms) - show every 4th marker (200ms)
+          majorInterval = 0.2;
+        } else if (timeInterval <= 0.1) {
+          // Small intervals (100ms) - show every 5th marker (500ms)
+          majorInterval = 0.5;
+        } else if (timeInterval <= 0.2) {
+          // Medium intervals (200ms) - show every 5th marker (1s)
+          majorInterval = 1.0;
+        } else if (timeInterval <= 0.5) {
+          // Medium intervals (500ms) - show every 2nd marker (1s)
+          majorInterval = 1.0;
+        } else if (timeInterval <= 1.0) {
+          // 1 second intervals - show every marker
+          majorInterval = 1.0;
+        } else if (timeInterval <= 2.0) {
+          // 2 second intervals - show every marker
+          majorInterval = 2.0;
+        } else if (timeInterval <= 5.0) {
+          // 5 second intervals - show every marker
+          majorInterval = 5.0;
+        } else if (timeInterval <= 10.0) {
+          // 10 second intervals - show every marker
+          majorInterval = 10.0;
+        } else if (timeInterval <= 15.0) {
+          // 15 second intervals - show every marker
+          majorInterval = 15.0;
+        } else if (timeInterval <= 30.0) {
+          // 30 second intervals - show every marker
+          majorInterval = 30.0;
+        } else if (timeInterval <= 60.0) {
+          // 60 second intervals - show every marker
+          majorInterval = 60.0;
+        } else {
+          // 120 second intervals - show every marker
+          majorInterval = 120.0;
+        }
+        
+        // Check if this marker should be major (with label)
         const isMajorMarker = Math.abs(time % majorInterval) < 0.001 || Math.abs(time) < 0.001;
+        
+        
         
         // Enhanced marker styling with better visual hierarchy
         if (isMajorMarker) {
+          majorMarkerCount++;
           // Major markers - thicker, more prominent
           ctx.strokeStyle = isHoveringRuler || isScrubbing ? "#93c5fd" : "#9ca3af"; // Light blue when active, gray otherwise
           ctx.lineWidth = 1.5;
@@ -597,17 +771,56 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           
           // Draw text for major markers with better typography
           if (x >= 0 && x < timelineWidth - 60) { // Leave margin for text
-            ctx.fillStyle = isHoveringRuler || isScrubbing ? "#dbeafe" : "#e5e7eb"; // Light text when active
-            ctx.font = "11px 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace";
-            ctx.textAlign = "left";
-            
-            // Add text shadow for better readability
-            ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-            ctx.fillText(formatTime(time), x + 3, timeRulerHeight - 1);
-            
-            // Draw the actual text
-            ctx.fillStyle = isHoveringRuler || isScrubbing ? "#dbeafe" : "#e5e7eb";
-            ctx.fillText(formatTime(time), x + 2, timeRulerHeight - 2);
+            // Check if we have enough space from the last text to prevent overlapping
+            const textX = x + 2;
+            if (textX - lastTextX >= minTextSpacing) {
+              // Improved text rendering logic - show more labels at high zoom
+              let shouldRenderText = true;
+              
+              // Show more labels at high zoom levels since we're using better intervals
+              if (pixelsPerSecond > 1000) {
+                // At 1000%+ zoom, show every 2nd label for good density with 0.1s intervals
+                shouldRenderText = (majorMarkerCount % 2 === 0);
+              } else if (pixelsPerSecond > 500) {
+                // At 500%+ zoom, show every marker (all labels) with 0.2s intervals
+                shouldRenderText = true;
+              } else if (pixelsPerSecond > 200) {
+                // At 200%+ zoom, show every marker (all labels)
+                shouldRenderText = true;
+              } else if (pixelsPerSecond > 100) {
+                // At 100%+ zoom, show every marker (all labels)
+                shouldRenderText = true;
+              }
+              
+              // Fallback: ensure we always show at least some labels
+              // If we haven't shown a label in a while, force show this one
+              if (!shouldRenderText && majorMarkerCount > 0 && majorMarkerCount % 5 === 0) {
+                shouldRenderText = true;
+              }
+              
+              if (shouldRenderText) {
+                // Set font and alignment
+                ctx.font = "11px 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace";
+                ctx.textAlign = "left";
+                ctx.textBaseline = "top";
+                
+                const timeText = formatTime(time);
+                
+                // Calculate text position more precisely
+                const textY = 2; // Start from top of ruler
+                
+                // Add text shadow for better readability
+                ctx.fillStyle = "rgba(0, 0, 0, 0.9)";
+                ctx.fillText(timeText, textX + 1, textY + 1);
+                
+                // Draw the actual text with high contrast
+                ctx.fillStyle = isHoveringRuler || isScrubbing ? "#ffffff" : "#e5e7eb";
+                ctx.fillText(timeText, textX, textY);
+                
+                // Update last text position
+                lastTextX = textX;
+              }
+            }
           }
         } else {
           // Minor markers - thinner, less prominent
@@ -620,7 +833,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         }
       }
     }
-
+    
 
     // Draw thumbnails container background
     if (thumbnails.length > 0) {
@@ -816,95 +1029,51 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       }
     }
 
-    // Draw enhanced current time indicator (spans full height)
+    // Draw enhanced current time indicator (spans full height) - always show red pin marker
     if (currentTime >= 0) {
       const x = (currentTime / effectiveDuration) * (timelineWidth * zoom) - pan;
-      if (x >= 0 && x < timelineWidth) {
-        // Enhanced scrubbing vs normal playback indicators
-        if (isScrubbing) {
-          // Scrubbing mode - more prominent with glow effect
-          // Draw glow effect
-          const glowGradient = ctx.createRadialGradient(x, timeRulerHeight / 2, 0, x, timeRulerHeight / 2, 20);
-          glowGradient.addColorStop(0, "rgba(255, 107, 53, 0.3)");
-          glowGradient.addColorStop(0.5, "rgba(255, 107, 53, 0.1)");
-          glowGradient.addColorStop(1, "rgba(255, 107, 53, 0)");
-          ctx.fillStyle = glowGradient;
-          ctx.fillRect(x - 20, 0, 40, timeRulerHeight);
-          
-          // Main scrubbing line with shadow
-          ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
-          ctx.lineWidth = 4;
-          ctx.beginPath();
-          ctx.moveTo(x + 1, 0);
-          ctx.lineTo(x + 1, timelineHeight);
-          ctx.stroke();
-          
-          ctx.strokeStyle = "#ff6b35"; // Bright orange for scrubbing
-          ctx.lineWidth = 3;
-          ctx.beginPath();
-          ctx.moveTo(x, 0);
-          ctx.lineTo(x, timelineHeight);
-          ctx.stroke();
-          
-          // Enhanced scrub indicator circle with gradient
-          const circleGradient = ctx.createRadialGradient(x, 8, 0, x, 8, 8);
-          circleGradient.addColorStop(0, "#ff8c5a");
-          circleGradient.addColorStop(1, "#ff6b35");
-          ctx.fillStyle = circleGradient;
-          ctx.beginPath();
-          ctx.arc(x, 8, 8, 0, 2 * Math.PI);
-          ctx.fill();
-          
-          // Add white highlight to circle
-          ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
-          ctx.beginPath();
-          ctx.arc(x - 2, 6, 3, 0, 2 * Math.PI);
-          ctx.fill();
-          
-          // Enhanced time label with background
-          const timeText = formatTime(currentTime);
-          ctx.font = "12px 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace";
-          ctx.textAlign = "center";
-          
-          // Draw background for time label
-          const textMetrics = ctx.measureText(timeText);
-          const textWidth = textMetrics.width + 8;
-          const textHeight = 16;
-          const textX = x;
-          const textY = 25;
-          
-          // Background with rounded corners effect
-          ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-          ctx.fillRect(textX - textWidth / 2, textY - textHeight + 2, textWidth, textHeight);
-          
-          // Draw the time text
-          ctx.fillStyle = "#ff6b35";
-          ctx.fillText(timeText, textX, textY);
-          ctx.textAlign = "left"; // Reset alignment
-        } else {
-          // Normal playback mode - subtle but visible
-          // Draw subtle glow
-          const glowGradient = ctx.createRadialGradient(x, timeRulerHeight / 2, 0, x, timeRulerHeight / 2, 15);
-          glowGradient.addColorStop(0, "rgba(34, 197, 94, 0.2)");
-          glowGradient.addColorStop(0.5, "rgba(34, 197, 94, 0.05)");
-          glowGradient.addColorStop(1, "rgba(34, 197, 94, 0)");
-          ctx.fillStyle = glowGradient;
-          ctx.fillRect(x - 15, 0, 30, timeRulerHeight);
-          
-          // Main playback line
-          ctx.strokeStyle = "#22c55e"; // Green for normal playback
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(x, 0);
-          ctx.lineTo(x, timelineHeight);
-          ctx.stroke();
-          
-          // Small indicator dot at top
-          ctx.fillStyle = "#22c55e";
-          ctx.beginPath();
-          ctx.arc(x, 6, 4, 0, 2 * Math.PI);
-          ctx.fill();
-        }
+      // Always draw pin marker, even if slightly outside visible area (auto-scroll will handle positioning)
+      if (x >= -50 && x < timelineWidth + 50) {
+        // Always use the red pin marker styling (previously scrubbing mode)
+        // Draw glow effect
+        const glowGradient = ctx.createRadialGradient(x, timeRulerHeight / 2, 0, x, timeRulerHeight / 2, 20);
+        glowGradient.addColorStop(0, "rgba(255, 107, 53, 0.3)");
+        glowGradient.addColorStop(0.5, "rgba(255, 107, 53, 0.1)");
+        glowGradient.addColorStop(1, "rgba(255, 107, 53, 0)");
+        ctx.fillStyle = glowGradient;
+        ctx.fillRect(x - 20, 0, 40, timeRulerHeight);
+        
+        // Main line with shadow
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(x + 1, 0);
+        ctx.lineTo(x + 1, timelineHeight);
+        ctx.stroke();
+        
+        ctx.strokeStyle = "#ff6b35"; // Bright orange/red
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, timelineHeight);
+        ctx.stroke();
+        
+        // Enhanced indicator circle with gradient
+        const circleGradient = ctx.createRadialGradient(x, 8, 0, x, 8, 8);
+        circleGradient.addColorStop(0, "#ff8c5a");
+        circleGradient.addColorStop(1, "#ff6b35");
+        ctx.fillStyle = circleGradient;
+        ctx.beginPath();
+        ctx.arc(x, 8, 8, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Add white highlight to circle
+        ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+        ctx.beginPath();
+        ctx.arc(x - 2, 6, 3, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Pin marker without time label or background box
       }
     }
 
@@ -949,15 +1118,22 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
 
     // Draw clips with their own waveforms and thumbnails
     console.log(`Drawing ${clips.length} clips`);
+    console.log(`Timeline dimensions: width=${timelineWidth}, height=${timelineHeight}, zoom=${zoom}, pan=${pan}`);
+    console.log(`Effective duration: ${effectiveDuration}`);
+    
     clips.forEach((clip, index) => {
       console.log(`Drawing clip ${index}: ${clip.name}`);
+      console.log(`Clip details: offset=${clip.offset}, startTime=${clip.startTime}, endTime=${clip.endTime}`);
       
       // Find the media file for this clip
       const mediaFile = mediaFiles.find(mf => mf.id === clip.mediaFileId);
       if (!mediaFile) {
-        console.log(`Media file not found for clip ${index}`);
+        console.log(`Media file not found for clip ${index}, mediaFileId: ${clip.mediaFileId}`);
+        console.log(`Available media files:`, mediaFiles.map(mf => ({ id: mf.id, name: mf.name })));
         return;
       }
+      
+      console.log(`Found media file for clip ${index}: ${mediaFile.name}`);
 
       const clipStartX = (clip.offset / effectiveDuration) * (timelineWidth * zoom) - pan;
       const clipEndX = ((clip.offset + (clip.endTime - clip.startTime)) / effectiveDuration) * (timelineWidth * zoom) - pan;
@@ -1203,11 +1379,24 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
    }, [samples, accepted, preview, duration, timelineWidth, timelineHeight, thumbnails, currentTime, zoom, pan, formatTime, thumbnailDimensions, isScrubbing, isHoveringRuler, clips, tracks, trackHeight, timeRulerHeight]);
 
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      drawTimeline();
-    }, 0);
+    // Debounced drawing for Tauri performance
+    if (drawTimeoutRef.current) {
+      clearTimeout(drawTimeoutRef.current);
+    }
     
-    return () => clearTimeout(timeoutId);
+    drawTimeoutRef.current = setTimeout(() => {
+      const frameId = requestAnimationFrame(() => {
+        drawTimeline();
+      });
+      
+      return () => cancelAnimationFrame(frameId);
+    }, 16); // ~60fps debounce
+    
+    return () => {
+      if (drawTimeoutRef.current) {
+        clearTimeout(drawTimeoutRef.current);
+      }
+    };
   }, [drawTimeline]);
 
   // Cleanup on unmount
@@ -1218,7 +1407,6 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         clearTimeout(zoomTimeoutRef.current);
         zoomTimeoutRef.current = null;
       }
-      
       
       // Clear any pending canvas operations
       const canvas = canvasRef.current;
@@ -1296,6 +1484,9 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     const effectiveDuration = getEffectiveDuration();
     const t = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
     
+    // Check if we're in the time ruler area
+    const isInRuler = y <= timeRulerHeight;
+    
     // Check if click is on a clip
     const clickedClip = findClipAtPosition(x, y, 5);
     
@@ -1308,13 +1499,23 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       setForceRedraw(prev => prev + 1);
       // Also call drawTimeline directly for immediate visual feedback
       drawTimeline();
-    } else {
-      // Clicked on empty space - deselect and seek to that time
+    } else if (isInRuler) {
+      // Clicked in ruler area - move pin marker to that time
       flushSync(() => {
         setSelectedClipId(null);
         setCurrentTime(t);
       });
+      ensurePinMarkerVisible(t);
       onSeek?.(t);
+      // Force immediate redraw
+      setForceRedraw(prev => prev + 1);
+      // Also call drawTimeline directly for immediate visual feedback
+      drawTimeline();
+    } else {
+      // Clicked in main timeline area - just deselect clip, don't move pin marker
+      flushSync(() => {
+        setSelectedClipId(null);
+      });
       // Force immediate redraw
       setForceRedraw(prev => prev + 1);
       // Also call drawTimeline directly for immediate visual feedback
@@ -1337,6 +1538,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     } else if (isScrubbing) {
       // Handle scrubbing - cursor follows mouse and updates time
       setCurrentTime(t);
+      ensurePinMarkerVisible(t);
       onSeek?.(t);
     } else if (isSelecting && selectionStart !== null) {
       // Handle manual selection
@@ -1345,14 +1547,11 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       setShowSelectionPreview(true);
     } else {
       // Handle time preview during hover (only in ruler area)
-      const timeRulerHeight = timelineHeight * 0.15;
       const isInRuler = y <= timeRulerHeight;
       
       setIsHoveringRuler(isInRuler);
       
-      if (isInRuler) {
-        setCurrentTime(t);
-      }
+      // Don't move pin marker on hover - only during active dragging or clicking
       
       // Check for hover over clips
       const hoveredClip = findClipAtPosition(x, y, 5);
@@ -1394,8 +1593,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     const effectiveDuration = getEffectiveDuration();
     const t = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
     
-    // Check if we're in the time ruler area (top 15% of timeline)
-    const timeRulerHeight = timelineHeight * 0.15;
+    // Check if we're in the time ruler area
     const isInRuler = y <= timeRulerHeight;
     
     // Check if we're in the timeline area (not on zoom controls)
@@ -1420,7 +1618,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         // Check if clicking on a clip - if so, don't start dragging
         const clickedClip = findClipAtPosition(x, y, 5);
         if (!clickedClip) {
-          // Start panning mode when clicking outside the ruler and not on a clip
+          // Start panning mode when clicking in main timeline area (not ruler) and not on a clip
           setIsDragging(true);
           setDragStart({ x: e.clientX, pan });
         }
@@ -1536,13 +1734,14 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       
       if (newTime !== currentTime) {
         setCurrentTime(newTime);
+        ensurePinMarkerVisible(newTime);
         onSeek?.(newTime);
       }
     };
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTime, duration, onSeek]);
+  }, [currentTime, duration, onSeek, ensurePinMarkerVisible]);
 
   // Calculate track controls height
   const trackControlsHeight = trackAreaHeight; // Track control height matches track content height

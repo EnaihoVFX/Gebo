@@ -131,32 +131,143 @@ export function useFileHandling() {
   // Function to add multiple media files
   const pickMultipleFiles = async () => {
     try {
-      const selected = await open({ 
-        multiple: true, 
-        filters: [{ 
-          name: "Media", 
-          extensions: ["mp4", "MP4", "mov", "MOV", "mkv", "MKV", "mp3", "MP3", "wav", "WAV", "aac", "AAC"] 
-        }] 
-      });
+      console.log("pickMultipleFiles called - opening dialog...");
+      log("Opening file dialog...");
       
-      if (!selected || selected.length === 0) return;
+      // First, let's test if the open function is available
+      if (typeof open !== 'function') {
+        throw new Error("open function is not available - dialog plugin may not be loaded");
+      }
+      
+      // Try different dialog configurations
+      console.log("Attempting to open file dialog...");
+      
+      // Try multiple file selection directly
+      let selected;
+      console.log("Trying multiple file selection...");
+      try {
+        selected = await open({ 
+          multiple: true,
+          title: "Select Media Files (Hold Cmd/Ctrl to select multiple)",
+          filters: [
+            { 
+              name: "Video Files", 
+              extensions: ["mp4", "mov", "mkv", "avi", "webm"] 
+            },
+            { 
+              name: "Audio Files", 
+              extensions: ["mp3", "wav", "aac", "m4a", "flac"] 
+            },
+            { 
+              name: "All Files", 
+              extensions: ["*"] 
+            }
+          ]
+        });
+        console.log("Multiple file result:", selected);
+      } catch (e) {
+        console.log("Multiple file selection failed, trying single file:", e);
+        // Fallback to single file selection
+        selected = await open({ 
+          multiple: false,
+          title: "Select a Media File",
+          filters: [
+            { 
+              name: "Video Files", 
+              extensions: ["mp4", "mov", "mkv", "avi", "webm"] 
+            },
+            { 
+              name: "Audio Files", 
+              extensions: ["mp3", "wav", "aac", "m4a", "flac"] 
+            },
+            { 
+              name: "All Files", 
+              extensions: ["*"] 
+            }
+          ]
+        });
+        console.log("Single file fallback result:", selected);
+      }
+      
+      console.log("Dialog result:", selected);
+      console.log("Dialog result type:", typeof selected);
+      log(`Dialog result: ${JSON.stringify(selected)}`);
+      
+      if (!selected) {
+        log("No files selected or dialog cancelled");
+        console.log("No files selected or dialog cancelled");
+        return;
+      }
 
-      log(`Selected ${selected.length} files`);
+      // Handle both single file (string) and multiple files (array)
+      let filePaths: string[];
+      if (typeof selected === 'string') {
+        filePaths = [selected];
+        log(`Selected 1 file: ${selected}`);
+        console.log("Dialog returned single file (string):", selected);
+      } else if (Array.isArray(selected)) {
+        filePaths = selected;
+        log(`Selected ${selected.length} files`);
+        console.log("Dialog returned multiple files (array):", selected);
+      } else {
+        log("Invalid dialog result format");
+        console.log("Invalid dialog result format:", selected);
+        return;
+      }
 
-      for (const filePath of selected) {
+      for (const filePath of filePaths) {
         await addMediaFile(filePath);
       }
 
       return selected;
     } catch (e: any) {
+      console.error("pickMultipleFiles error:", e);
       log(`Multiple file picker failed: ${e?.toString?.() || e}`);
+      log(`Error details: ${JSON.stringify(e)}`);
+      
+      // Log error instead of alert
+      console.log(`Error opening file dialog: ${e?.toString?.() || e}`);
+      
+      // Fallback: Try using HTML file input
+      console.log("Attempting fallback with HTML file input...");
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      input.accept = 'video/*,audio/*';
+      
+      input.onchange = async (event) => {
+        const files = (event.target as HTMLInputElement).files;
+        if (files && files.length > 0) {
+          console.log(`HTML file input selected ${files.length} files`);
+          log(`HTML file input selected ${files.length} files`);
+          
+          // For now, just show the file names
+          for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            console.log(`File ${i + 1}: ${file.name} (${file.size} bytes)`);
+            log(`File ${i + 1}: ${file.name} (${file.size} bytes)`);
+          }
+        }
+      };
+      
+      input.click();
     }
   };
 
   // Function to add a single media file to the collection
   const addMediaFile = async (filePath: string) => {
     try {
+      console.log(`Adding media file: ${filePath}`);
+      console.log(`File path type: ${typeof filePath}`);
+      console.log(`File path length: ${filePath.length}`);
       log(`Adding media file: ${filePath}`);
+
+      // Validate file path
+      if (!filePath || filePath.trim() === '' || filePath === '/') {
+        log(`Invalid file path: ${filePath}`);
+        console.log(`Invalid file path: ${filePath}`);
+        return;
+      }
 
       // Check if file already exists
       const existingFile = mediaFiles.find(f => f.path === filePath);

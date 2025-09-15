@@ -9,6 +9,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ExportDialog } from "./components/ExportDialog";
+import Footer from "./components/Footer";
 import { useFileHandling } from "./hooks/useFileHandling";
 import { useWaveformLogic } from "./hooks/useWaveformLogic";
 import { useCommandLogic } from "./hooks/useCommandLogic";
@@ -21,11 +22,15 @@ import {
 } from "lucide-react";
 
 import DebugProjectFileInfo from "./components/DebugProjectFileInfo";
+import { DeveloperOverlay } from "./components/DeveloperOverlay";
 import Modal from "../../components/Modal";
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
+import useProjectFileStore from '../../stores/projectFileStore';
 
 export default function VideoEditor() {
+  console.log("VideoEditor component rendering...");
+  
   const [jsonModal, setJsonModal] = useState(false); // JSON Data modal state
 
   // Edits
@@ -59,8 +64,17 @@ export default function VideoEditor() {
   // Timeline view mode
   const [useAdvancedTimeline] = useState(true);
   
+  // Zoom level tracking
+  const [zoomLevel, setZoomLevel] = useState(1);
+  
   // Mobile debug panel
   const [showMobileDebug, setShowMobileDebug] = useState(false);
+  
+  // Developer overlay
+  const [showDeveloperOverlay, setShowDeveloperOverlay] = useState(false);
+  
+  // Project file store
+  const projectFile = useProjectFileStore(state => state.projectFile);
 
   // Players control
   const editedRef = useRef<PlayerHandle>(null);
@@ -78,6 +92,15 @@ export default function VideoEditor() {
     pickMultipleFiles,
     removeMediaFile,
   } = useFileHandling();
+
+  // Debug: Log the pickMultipleFiles function
+  console.log("pickMultipleFiles function:", typeof pickMultipleFiles, pickMultipleFiles);
+  console.log("VideoEditor state:", { 
+    mediaFiles: mediaFiles.length, 
+    filePath, 
+    probe: !!probe,
+    showMobileDebug 
+  });
 
   const { mergeRanges, detectSilences, tightenSilences } = useWaveformLogic(probe, peaks);
 
@@ -215,6 +238,8 @@ export default function VideoEditor() {
   // Handle dropping media files onto timeline tracks
   const handleDropMedia = (mediaFile: any, trackId: string, offset: number, event?: React.DragEvent) => {
     console.log("handleDropMedia called with:", { mediaFile, trackId, offset });
+    console.log("MediaFile object:", mediaFile);
+    console.log("Current clips before drop:", clips.length);
     log(`Dropped ${mediaFile.name} onto track ${trackId} at ${offset.toFixed(2)}s`);
     
     // Create a clip from the media file
@@ -259,6 +284,7 @@ export default function VideoEditor() {
     setClips(prevClips => {
       const newClips = [...prevClips, clip];
       console.log("Updated clips array:", newClips);
+      console.log("New clip created:", clip);
       log(`Created clip: ${clip.name} (${clip.startTime.toFixed(2)}s - ${clip.endTime.toFixed(2)}s) at offset ${clip.offset.toFixed(2)}s`);
       log(`Total clips now: ${newClips.length}`);
       return newClips;
@@ -467,13 +493,71 @@ export default function VideoEditor() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [probe, undo, redo, markIn, markOut, togglePlay, acceptPlan, rejectPlan, previewCuts, handleGoHome]);
 
+  // Track zoom level from AdvancedTimeline
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (advancedTimelineRef.current) {
+        setZoomLevel(advancedTimelineRef.current.zoomLevel);
+      }
+    }, 100); // Update every 100ms
+
+    return () => clearInterval(interval);
+  }, []);
+
   const duration = probe?.duration || 0;
 
+  const getFileName = (path: string) => {
+    if (!path) return "No file loaded";
+    return path.split('/').pop() || path.split('\\').pop() || path;
+  };
+
+  // Test if basic JavaScript is working
+  console.log("About to render VideoEditor component");
+  
   return (
     <div className="h-screen bg-editor-bg-primary text-slate-100 flex flex-col overflow-hidden">
       
       {/* Header Bar - Responsive Design */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between px-3 sm:px-4 py-2 sm:py-3 bg-editor-bg-secondary border-b border-editor-border-secondary flex-shrink-0 gap-3 lg:gap-0">
+        
+        {/* Debug Console - Always visible when enabled */}
+        {showMobileDebug && (
+          <div className="w-full border border-slate-600 rounded-lg p-3 bg-slate-800 mb-2">
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-300 font-medium">Debug Console</span>
+                <button 
+                  onClick={() => setShowMobileDebug(false)}
+                  className="text-slate-400 hover:text-slate-200"
+                >
+                  ✕
+                </button>
+              </div>
+              <div>
+                <span className="text-slate-400">File Path:</span>
+                <div className="text-slate-300 break-all">{filePath || "None"}</div>
+              </div>
+              <div>
+                <span className="text-slate-400">Duration:</span>
+                <div className="text-slate-300">{probe ? `${probe.duration}s` : "None"}</div>
+              </div>
+              <div>
+                <span className="text-slate-400">Cuts:</span>
+                <div className="text-slate-300">Accepted: {acceptedCuts.length}, Preview: {previewCuts.length}</div>
+              </div>
+              <div>
+                <span className="text-slate-400">Media Files:</span>
+                <div className="text-slate-300">{mediaFiles.length} files loaded</div>
+              </div>
+              <div className="mt-2">
+                <span className="text-slate-400">Recent Logs:</span>
+                <pre className="text-slate-300 whitespace-pre-wrap text-xs max-h-32 overflow-y-auto bg-slate-900 p-2 rounded">
+                  {debug.split('\n').slice(-10).join('\n') || "No recent logs"}
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-3 sm:gap-4 h-10">
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="Video Copilot Logo" className="h-6 w-auto" />
@@ -492,6 +576,13 @@ export default function VideoEditor() {
               title="Project Info"
             >
               <Info className="w-4 h-4 flex-shrink-0" />
+            </button>
+            <button 
+              onClick={() => setShowDeveloperOverlay(true)}
+              className="flex items-center justify-center w-8 h-8 text-editor-text-secondary hover:text-editor-text-primary hover:bg-editor-bg-tertiary rounded-lg transition-colors border-0 p-0"
+              title="Open Developer Console"
+            >
+              <BarChart3 className="w-4 h-4 flex-shrink-0" />
             </button>
           </div>
         </div>
@@ -624,7 +715,7 @@ export default function VideoEditor() {
             <div className="px-3 sm:px-4 py-1.5 sm:py-2.5 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
               <h3 className="text-sm font-medium text-white">Media</h3>
               <button
-                onClick={pickMultipleFiles}
+                onClick={() => pickMultipleFiles()}
                 className="flex items-center gap-1.5 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
               >
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
@@ -665,11 +756,11 @@ export default function VideoEditor() {
               {/* Mobile Debug Toggle */}
               <div className="lg:hidden border-b border-slate-700 p-2">
                 <button
-                  onClick={() => setShowMobileDebug(!showMobileDebug)}
+                  onClick={() => setShowDeveloperOverlay(true)}
                   className="w-full px-3 py-2 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors flex items-center justify-center gap-2"
                 >
                   <BarChart3 className="w-4 h-4" />
-                  {showMobileDebug ? "Hide Debug" : "Show Debug"}
+                  Developer Console
                 </button>
               </div>
 
@@ -768,6 +859,31 @@ export default function VideoEditor() {
         </ErrorBoundary>
       </div>
 
+      {/* Footer */}
+      <Footer
+        acceptedCuts={acceptedCuts.length}
+        previewCuts={previewCuts.length}
+        clips={clips.length}
+        tracks={tracks.length}
+        projectName={filePath ? getFileName(filePath) : "No Project"}
+        resolution={probe?.width && probe?.height ? `${probe.width}x${probe.height}` : "No video loaded"}
+        frameRate={probe?.fps ? Math.round(probe.fps) : 0}
+        duration={duration}
+        filePath={filePath || ""}
+        audioChannels={probe?.audio_channels || 0}
+        audioRate={probe?.audio_rate || 0}
+        videoCodec={probe?.v_codec || ""}
+        audioCodec={probe?.a_codec || ""}
+        container={probe?.container || ""}
+        zoomLevel={zoomLevel}
+        currentTool="Select"
+        selectionInfo=""
+        onSettingsClick={() => {
+          // TODO: Implement settings dialog
+          console.log('Settings clicked');
+        }}
+      />
+
       {/* Command dialog */}
       <CommandDialog
         isOpen={showCommandDialog}
@@ -791,6 +907,20 @@ export default function VideoEditor() {
       >
         <DebugProjectFileInfo /> 
       </Modal>
+
+      {/* Developer Overlay */}
+      <DeveloperOverlay
+        debug={debug}
+        filePath={filePath}
+        previewUrl={previewUrl}
+        probe={probe}
+        peaks={peaks}
+        acceptedCuts={acceptedCuts}
+        previewCuts={previewCuts}
+        projectFile={projectFile}
+        isOpen={showDeveloperOverlay}
+        onClose={() => setShowDeveloperOverlay(false)}
+      />
     </div>
   );
 }
