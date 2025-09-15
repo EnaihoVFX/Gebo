@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
-  "identifier": "app.cursor.videocopilot",
-  "productName": "video-copilot",
+  "identifier": "app.gebo.videoeditor",
+  "productName": "Gebo",
   "version": "0.0.0",
   "build": {
     "beforeDevCommand": "npm run dev",
