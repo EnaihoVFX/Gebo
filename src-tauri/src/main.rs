@@ -26,18 +26,6 @@ fn make_preview_proxy(input: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn open_project_path(path: String) -> Result<project_file::ProjectFile, String> {
-  let p = std::path::Path::new(&path);
-  project_file::open_project_path(p).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn save_project_path(project: project_file::ProjectFile, path: String) -> Result<(), String> {
-  let p = std::path::Path::new(&path);
-  project_file::save_project_path(&project, p).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 fn read_file_as_base64(path: String) -> Result<String, String> {
   use std::fs;
   use base64::Engine;
@@ -133,7 +121,7 @@ async fn create_editor_window(app: tauri::AppHandle) -> Result<(), String> {
     tauri::WebviewUrl::App("/editor".into())
   )
   .title("Video Editor")
-  .fullscreen(true)
+  .fullscreen(false)
   .build()
   .map_err(|e| e.to_string())?;
   
@@ -150,6 +138,34 @@ async fn focus_main_window(app: tauri::AppHandle) -> Result<(), String> {
   Ok(())
 }
 
+// ProjectFile
+
+#[tauri::command]
+fn new_project(project_file: project_file::ProjectFile) -> Result<project_file::ProjectFile, String> {
+  project_file::new_project(project_file).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn load_project(path: String) -> Result<project_file::ProjectFile, String> {
+  project_file::load_project(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_project(new_path: Option<String>) -> Result<(), String> {
+  project_file::save_project(new_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_project(updated_project: project_file::ProjectFile) -> Result<(), String> {
+  project_file::update_project(updated_project).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_project() -> Result<Option<project_file::ProjectFile>, String> {
+  project_file::get_project()
+}
+
+
 fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
@@ -158,8 +174,6 @@ fn main() {
       audio_peaks,
       export_cutlist,
       make_preview_proxy,
-      open_project_path,
-      save_project_path,
       read_file_as_base64,
       copy_to_app_data,
       get_file_url,
@@ -170,7 +184,13 @@ fn main() {
       center_window,
       set_fullscreen,
       create_editor_window,
-      focus_main_window
+      focus_main_window,
+      // ProjectFile commands
+      new_project,
+      load_project,
+      save_project,
+      update_project,
+      get_project
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
