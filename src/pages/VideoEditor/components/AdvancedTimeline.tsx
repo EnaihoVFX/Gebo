@@ -496,6 +496,21 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     zoomLevel: zoom
   }), [handleZoomIn, handleZoomOut, handleResetZoom, isZooming, zoom]);
 
+  // Helper function to draw rounded rectangles
+  const drawRoundedRect = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) => {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+  }, []);
+
   const drawTimeline = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1156,7 +1171,11 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         } else {
           ctx.fillStyle = "rgba(59, 130, 246, 0.3)"; // Normal blue
         }
-        ctx.fillRect(clipStartX, timeRulerHeight, clipWidth, trackAreaHeight);
+        
+        // Draw rounded rectangle for clip background
+        const clipRadius = 6; // Adjust this value to control roundness
+        drawRoundedRect(ctx, clipStartX, timeRulerHeight, clipWidth, trackAreaHeight, clipRadius);
+        ctx.fill();
 
         // Clip border - different styles for selected, hovered, and normal clips
         if (isSelected) {
@@ -1169,7 +1188,10 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           ctx.strokeStyle = "#3b82f6"; // Normal blue border
           ctx.lineWidth = 2;
         }
-        ctx.strokeRect(clipStartX, timeRulerHeight, clipWidth, trackAreaHeight);
+        
+        // Draw rounded rectangle border
+        drawRoundedRect(ctx, clipStartX, timeRulerHeight, clipWidth, trackAreaHeight, clipRadius);
+        ctx.stroke();
 
         // Draw waveform for this clip (below thumbnails in both layering and position)
         if (mediaFile.peaks && mediaFile.peaks.length > 0) {
@@ -1477,6 +1499,146 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     };
   }, [drawTimeline]);
 
+  // Add comprehensive drag and drop debugging
+  useEffect(() => {
+    const handleGlobalDragStart = (e: DragEvent) => {
+      console.log("Global drag start event detected on:", e.target);
+      console.log("Global drag start dataTransfer types:", Array.from(e.dataTransfer?.types || []));
+    };
+
+    const handleGlobalDragOver = (e: DragEvent) => {
+      console.log("Global drag over event detected on:", e.target);
+      console.log("Global drag over dataTransfer types:", Array.from(e.dataTransfer?.types || []));
+      console.log("Global drag over clientX:", e.clientX, "clientY:", e.clientY);
+      e.preventDefault(); // Important: prevent default to allow drop
+    };
+    
+    const handleGlobalDrop = (e: DragEvent) => {
+      console.log("Global drop event detected on:", e.target);
+      console.log("Global drop dataTransfer types:", Array.from(e.dataTransfer?.types || []));
+      console.log("Global drop clientX:", e.clientX, "clientY:", e.clientY);
+      e.preventDefault(); // Important: prevent default
+    };
+
+    const handleGlobalDragEnter = (e: DragEvent) => {
+      console.log("Global drag enter event detected on:", e.target);
+      console.log("Global drag enter clientX:", e.clientX, "clientY:", e.clientY);
+      e.preventDefault(); // Important: prevent default
+    };
+
+    const handleGlobalDragLeave = (e: DragEvent) => {
+      console.log("Global drag leave event detected on:", e.target);
+    };
+
+    const handleGlobalDragEnd = (e: DragEvent) => {
+      console.log("Global drag end event detected on:", e.target);
+    };
+
+    // Add event listeners with capture phase to catch events early
+    document.addEventListener('dragstart', handleGlobalDragStart, true);
+    document.addEventListener('dragover', handleGlobalDragOver, true);
+    document.addEventListener('drop', handleGlobalDrop, true);
+    document.addEventListener('dragenter', handleGlobalDragEnter, true);
+    document.addEventListener('dragleave', handleGlobalDragLeave, true);
+    document.addEventListener('dragend', handleGlobalDragEnd, true);
+
+    return () => {
+      document.removeEventListener('dragstart', handleGlobalDragStart, true);
+      document.removeEventListener('dragover', handleGlobalDragOver, true);
+      document.removeEventListener('drop', handleGlobalDrop, true);
+      document.removeEventListener('dragenter', handleGlobalDragEnter, true);
+      document.removeEventListener('dragleave', handleGlobalDragLeave, true);
+      document.removeEventListener('dragend', handleGlobalDragEnd, true);
+    };
+  }, []);
+
+  // Custom drag and drop using mouse events
+  const [isCustomDragging, setIsCustomDragging] = useState(false);
+  const [customDragData, setCustomDragData] = useState<any>(null);
+
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      // Check if we're over the timeline
+      const timelineElement = document.querySelector('[data-timeline="true"]');
+      if (timelineElement) {
+        const rect = timelineElement.getBoundingClientRect();
+        const isOverTimeline = e.clientX >= rect.left && e.clientX <= rect.right && 
+                              e.clientY >= rect.top && e.clientY <= rect.bottom;
+        
+        if (isOverTimeline) {
+          console.log("Mouse over timeline during custom drag");
+          setIsCustomDragging(true);
+        } else {
+          setIsCustomDragging(false);
+        }
+      }
+    };
+
+    const handleGlobalMouseUp = (e: MouseEvent) => {
+      if (isCustomDragging && customDragData) {
+        console.log("Custom drop on timeline");
+        
+        // Check if we're over the timeline
+        const timelineElement = document.querySelector('[data-timeline="true"]');
+        if (timelineElement) {
+          const rect = timelineElement.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          
+          console.log(`Custom drop position: x=${x}, y=${y}`);
+          
+          if (customDragData.type === "media-file" && customDragData.mediaFile && onDropMedia) {
+            // Calculate track index more accurately
+            const trackIndex = Math.max(0, Math.floor((y - timeRulerHeight) / trackHeight));
+            const track = tracks[trackIndex];
+            
+            console.log(`Drop position: x=${x}, y=${y}`);
+            console.log(`Time ruler height: ${timeRulerHeight}, track height: ${trackHeight}`);
+            console.log(`Calculated track index: ${trackIndex}, available tracks: ${tracks.length}`);
+            console.log(`Selected track:`, track);
+            
+            if (track) {
+              const effectiveDuration = getEffectiveDuration();
+              const timeOffset = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
+              
+              console.log(`Custom dropping on track ${trackIndex}: ${track.id}, time offset: ${timeOffset}`);
+              onDropMedia(customDragData.mediaFile, track.id, Math.max(0, timeOffset), e as any);
+            } else {
+              console.log(`No valid track found at index ${trackIndex}`);
+              // Try to drop on the first available track as fallback
+              if (tracks.length > 0) {
+                const fallbackTrack = tracks[0];
+                const effectiveDuration = getEffectiveDuration();
+                const timeOffset = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
+                console.log(`Falling back to first track: ${fallbackTrack.id}, time offset: ${timeOffset}`);
+                onDropMedia(customDragData.mediaFile, fallbackTrack.id, Math.max(0, timeOffset), e as any);
+              }
+            }
+          }
+        }
+        
+        setIsCustomDragging(false);
+        setCustomDragData(null);
+      }
+    };
+
+    // Listen for custom drag data from MediaGrid
+    const handleCustomDragStart = (e: CustomEvent) => {
+      console.log("Custom drag start received:", e.detail);
+      setCustomDragData(e.detail);
+    };
+
+    document.addEventListener('mousemove', handleGlobalMouseMove);
+    document.addEventListener('mouseup', handleGlobalMouseUp);
+    document.addEventListener('customDragStart', handleCustomDragStart as EventListener);
+
+    return () => {
+      document.removeEventListener('mousemove', handleGlobalMouseMove);
+      document.removeEventListener('mouseup', handleGlobalMouseUp);
+      document.removeEventListener('customDragStart', handleCustomDragStart as EventListener);
+    };
+  }, [isCustomDragging, customDragData, onDropMedia, tracks, timeRulerHeight, trackHeight, pan, timelineWidth, zoom, getEffectiveDuration]);
+
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -1746,58 +1908,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
   // Calculate track controls height
   const trackControlsHeight = trackAreaHeight; // Track control height matches track content height
 
-  // Drag and drop handlers
-  const handleDragOver = (e: React.DragEvent) => {
-    console.log("Drag over timeline - event fired!");
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    console.log("Drag leave timeline");
-    e.preventDefault();
-    setIsDragOver(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    console.log("Drop on timeline");
-    alert("Drop on timeline!");
-    e.preventDefault();
-    setIsDragOver(false);
-
-    try {
-      const data = JSON.parse(e.dataTransfer.getData("application/json"));
-      console.log("Drop data:", data);
-      
-      if (data.type === "media-file" && data.mediaFile && onDropMedia) {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        
-        console.log(`Drop position: x=${x}, y=${y}`);
-        console.log(`Timeline dimensions: width=${timelineWidth}, height=${timelineHeight}`);
-        console.log(`Time ruler height: ${timeRulerHeight}, track height: ${trackHeight}`);
-        
-        // For single track, just use the first track
-        const track = tracks[0];
-        if (track) {
-          // Calculate time offset based on x position
-          const effectiveDuration = getEffectiveDuration();
-          const timeOffset = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
-          
-          console.log(`Dropping on track: ${track.id}, time offset: ${timeOffset}`);
-          onDropMedia(data.mediaFile, track.id, Math.max(0, timeOffset), e);
-        } else {
-          console.log("No tracks available");
-        }
-      } else {
-        console.log("Invalid drop data or missing onDropMedia handler");
-      }
-    } catch (error) {
-      console.error("Error handling drop:", error);
-    }
-  };
+  // Drag and drop handlers are now inlined in the JSX for better debugging
 
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden w-full">
@@ -1876,7 +1987,80 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         </div>
         
         {/* Timeline Canvas */}
-        <div className="flex-1 relative transition-all duration-300 ease-in-out" style={{ height: `${timelineHeight}px` }}>
+        <div 
+          data-timeline="true"
+          className="flex-1 relative"
+          style={{ height: `${timelineHeight}px` }}
+          onDragOver={(e) => {
+            console.log("AdvancedTimeline: Drag over timeline - event fired!");
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "copy";
+            setIsDragOver(true);
+          }}
+          onDragEnter={(e) => {
+            console.log("AdvancedTimeline: Drag enter timeline - event fired!");
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "copy";
+            setIsDragOver(true);
+          }}
+          onDragLeave={(e) => {
+            console.log("AdvancedTimeline: Drag leave timeline - event fired!");
+            e.preventDefault();
+            e.stopPropagation();
+            // Only set drag over to false if we're actually leaving the timeline area
+            const timelineContainer = e.currentTarget;
+            const relatedTarget = e.relatedTarget as Node;
+            
+            if (!timelineContainer.contains(relatedTarget)) {
+              setIsDragOver(false);
+            }
+          }}
+          onDrop={(e) => {
+            console.log("AdvancedTimeline: Drop on timeline - event received");
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDragOver(false);
+
+            try {
+              const data = JSON.parse(e.dataTransfer.getData("application/json"));
+              console.log("Drop data:", data);
+              console.log("onDropMedia function available:", !!onDropMedia);
+              console.log("Data type:", data.type);
+              console.log("Media file:", data.mediaFile);
+              
+              if (data.type === "media-file" && data.mediaFile && onDropMedia) {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                console.log(`Drop position: x=${x}, y=${y}`);
+                console.log(`Timeline dimensions: width=${timelineWidth}, height=${timelineHeight}`);
+                console.log(`Time ruler height: ${timeRulerHeight}, track height: ${trackHeight}`);
+                
+                // Determine which track the user is dropping onto based on Y position
+                const trackIndex = Math.floor((y - timeRulerHeight) / trackHeight);
+                const track = tracks[trackIndex];
+                
+                if (track) {
+                  // Calculate time offset based on x position
+                  const effectiveDuration = getEffectiveDuration();
+                  const timeOffset = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
+                  
+                  console.log(`Dropping on track ${trackIndex}: ${track.id}, time offset: ${timeOffset}`);
+                  onDropMedia(data.mediaFile, track.id, Math.max(0, timeOffset), e);
+                } else {
+                  console.log(`No track found at index ${trackIndex}, available tracks: ${tracks.length}`);
+                }
+              } else {
+                console.log("Invalid drop data or missing onDropMedia handler");
+              }
+            } catch (error) {
+              console.error("Error handling drop:", error);
+            }
+          }}
+        >
           <div ref={containerRef} className="w-full h-full">
             <canvas 
               ref={canvasRef} 
@@ -1887,19 +2071,23 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
               onMouseLeave={handleMouseLeave}
               onDoubleClick={handleDoubleClick}
               onContextMenu={(e) => e.preventDefault()} // Prevent right-click menu
-              onDragOver={handleDragOver}
-              onDragEnter={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
               tabIndex={0}
               className={`${isScrubbing ? 'cursor-grabbing' : isSelecting ? 'cursor-crosshair' : isDragOver ? 'cursor-copy' : 'cursor-default'} hover:opacity-95 transition-all duration-200 ease-in-out block w-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50`}
               style={{ 
                 height: `${timelineHeight}px`, 
                 maxHeight: `${timelineHeight}px`,
+                width: '100%',
                 backgroundColor: isDragOver ? 'rgba(59, 130, 246, 0.1)' : 'transparent'
               }}
             />
           </div>
+
+          {/* Drag indicator */}
+          {isDragOver && (
+            <div className="absolute inset-0 border-2 border-dashed border-blue-400 bg-blue-50 bg-opacity-10 flex items-center justify-center pointer-events-none">
+              <div className="text-blue-400 text-lg font-medium">Drop video here</div>
+            </div>
+          )}
 
           {/* Thumbnail generation indicator */}
           {isGeneratingThumbnails && (

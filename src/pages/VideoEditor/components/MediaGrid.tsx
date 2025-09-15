@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { Plus, Video, Music, X } from "lucide-react";
 import type { MediaFile } from "../../../types";
 
@@ -17,7 +17,8 @@ export function MediaGrid({ mediaFiles, onAddMedia, onRemoveMedia, onDragStart }
   
 
   const handleDragStart = useCallback((mediaFile: MediaFile, event: React.DragEvent) => {
-    console.log("Starting drag of:", mediaFile.name);
+    console.log("MediaGrid: Starting drag of:", mediaFile.name);
+    console.log("MediaGrid: MediaFile object:", mediaFile);
     onDragStart(mediaFile, event);
     
     // Set drag data
@@ -25,10 +26,73 @@ export function MediaGrid({ mediaFiles, onAddMedia, onRemoveMedia, onDragStart }
       type: "media-file",
       mediaFile
     };
-    console.log("Setting drag data:", dragData);
-    event.dataTransfer.setData("application/json", JSON.stringify(dragData));
-    event.dataTransfer.effectAllowed = "copy";
+    console.log("MediaGrid: Setting drag data:", dragData);
+    
+    try {
+      event.dataTransfer.setData("application/json", JSON.stringify(dragData));
+      event.dataTransfer.effectAllowed = "copy";
+      console.log("MediaGrid: Drag data set successfully");
+      console.log("MediaGrid: DataTransfer types after setting:", Array.from(event.dataTransfer.types));
+    } catch (error) {
+      console.error("MediaGrid: Error setting drag data:", error);
+    }
   }, [onDragStart]);
+
+  // Custom drag and drop using mouse events
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragData, setDragData] = useState<any>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+
+  const handleMouseDown = useCallback((mediaFile: MediaFile, event: React.MouseEvent) => {
+    console.log("MediaGrid: Mouse down on:", mediaFile.name);
+    setIsDragging(true);
+    const dragData = { type: "media-file", mediaFile };
+    setDragData(dragData);
+    
+    const rect = event.currentTarget.getBoundingClientRect();
+    setDragOffset({
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
+    });
+    
+    // Dispatch custom event for timeline to listen to
+    const customEvent = new CustomEvent('customDragStart', { 
+      detail: dragData 
+    });
+    document.dispatchEvent(customEvent);
+    console.log("MediaGrid: Dispatched custom drag start event");
+    
+    // Prevent default to avoid text selection
+    event.preventDefault();
+  }, []);
+
+  const handleMouseMove = useCallback((event: MouseEvent) => {
+    if (isDragging && dragData) {
+      console.log("MediaGrid: Mouse move while dragging");
+      // We'll handle this in the timeline component
+    }
+  }, [isDragging, dragData]);
+
+  const handleMouseUp = useCallback((event: MouseEvent) => {
+    if (isDragging) {
+      console.log("MediaGrid: Mouse up, ending drag");
+      setIsDragging(false);
+      setDragData(null);
+      setDragOffset({ x: 0, y: 0 });
+    }
+  }, [isDragging]);
+
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp]);
 
   const handleDragEnd = useCallback(() => {
     // Drag ended
@@ -97,7 +161,9 @@ export function MediaGrid({ mediaFiles, onAddMedia, onRemoveMedia, onDragStart }
             {mediaFiles.map((mediaFile) => (
               <div
                 key={mediaFile.id}
-                className="group relative bg-slate-800 rounded-lg border border-slate-700 overflow-hidden cursor-grab hover:border-slate-600 transition-colors"
+                className={`group relative bg-slate-800 rounded-lg border border-slate-700 overflow-hidden cursor-grab hover:border-slate-600 transition-colors ${
+                  isDragging && dragData?.mediaFile?.id === mediaFile.id ? 'opacity-50 scale-95' : ''
+                }`}
                 draggable={true}
                 onDragStart={(e) => {
                   console.log("MediaGrid: onDragStart triggered for", mediaFile.name);
@@ -106,6 +172,10 @@ export function MediaGrid({ mediaFiles, onAddMedia, onRemoveMedia, onDragStart }
                 onDragEnd={() => {
                   console.log("MediaGrid: onDragEnd triggered");
                   handleDragEnd();
+                }}
+                onMouseDown={(e) => {
+                  console.log("MediaGrid: onMouseDown triggered for", mediaFile.name);
+                  handleMouseDown(mediaFile, e);
                 }}
                 style={{
                   aspectRatio: '16/9'
