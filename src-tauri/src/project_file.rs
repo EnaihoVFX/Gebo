@@ -1,15 +1,46 @@
 use anyhow::{anyhow, Context, Result};
 use serde::{Serialize, Deserialize};
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::collections::HashMap;
+use crate::ffmpeg::{self, Probe};
 
+
+// ClipType
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum ClipType {
+    Video,
+    Audio,
+    Image,
+}
+impl ClipType {
+    /// Convert to string representation
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ClipType::Video => "video",
+            ClipType::Audio => "audio",
+            ClipType::Image => "image",
+        }
+    }
+    
+    /// Create from string
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "video" => Some(ClipType::Video),
+            "audio" => Some(ClipType::Audio),
+            "image" => Some(ClipType::Image),
+            _ => None,
+        }
+    }
+}
 /// Represents a single 'clip' (audio/video/image file) used in the project
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Clip {
     pub id: String,
     pub path: PathBuf,
+    pub latest_probe: Option<Probe>, // Cached probe of the clip
+    pub r#type: ClipType, // Media type
 }
 impl Clip {
     /// Verify that the clip's path exists and is a file
@@ -17,6 +48,14 @@ impl Clip {
     /// Returns true if valid, false otherwise
     pub fn verify(&self) -> bool {
         self.path.exists() && self.path.is_file()
+    }
+
+    /// Update the cached probe information by re-probing the file
+    ///
+    pub fn update_probe(&mut self) {
+        if let Some(path_str) = self.path.to_str() {
+            self.latest_probe = ffmpeg::ffprobe(path_str).ok();
+        }
     }
 }
 
@@ -47,6 +86,8 @@ impl Segment {
 pub enum TrackType {
     Video,
     Audio,
+    Text,
+    Effect
 }
 
 impl TrackType {
@@ -55,6 +96,8 @@ impl TrackType {
         match self {
             TrackType::Video => "video",
             TrackType::Audio => "audio",
+            TrackType::Text => "text",
+            TrackType::Effect => "effect",
         }
     }
     
@@ -63,6 +106,8 @@ impl TrackType {
         match s {
             "video" => Some(TrackType::Video),
             "audio" => Some(TrackType::Audio),
+            "text" => Some(TrackType::Text),
+            "effect" => Some(TrackType::Effect),
             _ => None,
         }
     }
@@ -159,103 +204,46 @@ impl ProjectFile {
 
 // Global Project State Management
 
-/// Global project state that handles all project operations and file locking
+/// Global project state that handles all project operations
 struct ProjectState {
     project: ProjectFile,
-    file_handle: Option<File>,  // Handle to prevent deletion
 }
 
 impl ProjectState {
-    /// Create a new project state with optional file locking
+    /// Create a new project state
     fn new(project: ProjectFile) -> Result<Self> {
-        let file_handle = if let Some(path) = &project.path {
-            Self::acquire_file_handle(path).ok()
-        } else {
-            None
-        };
-        
         Ok(Self {
             project,
-            file_handle,
         })
     }
 
-    /// Acquire a file handle with exclusive access to prevent deletion
-    fn acquire_file_handle(path: &Path) -> Result<File> {
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::fs::OpenOptionsExt;
-            
-            OpenOptions::new()
-                .read(true)
-                .write(true)
-                .share_mode(0)  // No sharing - exclusive access
-                .open(path)
-                .with_context(|| format!("failed to acquire exclusive file handle for {:?}", path))
-        }
-        
-        #[cfg(not(target_os = "windows"))]
-        {
-            // On non-Windows systems, just open with read/write access
-            OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(path)
-                .with_context(|| format!("failed to acquire file handle for {:?}", path))
-        }
-    }
-
-    /// Load a project from path and create state with file locking
+    /// Load a project from path and create state
     fn load_from_path(path: String) -> Result<Self> {
         let path_buf = PathBuf::from(&path);
         let project = ProjectFile::from_path(&path_buf)?;
         
-        // Acquire exclusive file handle to prevent deletion
-        let file_handle = Self::acquire_file_handle(&path_buf)?;
-        
         Ok(Self {
             project,
-            file_handle: Some(file_handle),
         })
     }
 
-    /// Save the project, temporarily releasing and reacquiring file handle
+    /// Save the project
     fn save(&mut self, new_path: Option<String>) -> Result<()> {
-        // Temporarily release file handle for saving
-        let _temp_handle = self.file_handle.take();
-        
         // Update path if provided
         if let Some(new_path_str) = new_path {
             self.project.path = Some(PathBuf::from(new_path_str));
         }
         
         // Save the project
-        let save_result = self.project.save();
-        
-        // Reacquire file handle after saving
-        if let Some(path) = &self.project.path {
-            self.file_handle = Self::acquire_file_handle(path).ok();
-        }
-        
-        save_result
+        self.project.save()
     }
 
-    /// Update the project data and refresh file handle if path changed
+    /// Update the project data and save to disk
     fn update(&mut self, updated_project: ProjectFile) -> Result<()> {
-        let path_changed = self.project.path != updated_project.path;
-        
         self.project = updated_project;
         
-        // If path changed, reacquire file handle
-        if path_changed {
-            self.file_handle = if let Some(path) = &self.project.path {
-                Self::acquire_file_handle(path).ok()
-            } else {
-                None
-            };
-        }
-        
-        Ok(())
+        // Save changes immediately
+        self.save(None)
     }
 
     /// Get a clone of the project data
@@ -339,12 +327,12 @@ pub fn update_project(updated_project: ProjectFile) -> Result<()> {
     }
 }
 
-/// Close the current project and release file handle
+/// Close the current project
 pub fn close_project() -> Result<()> {
     let state = get_global_state();
     let mut guard = state.lock().map_err(|e| anyhow!("failed to lock project state: {}", e))?;
     
-    *guard = None;  // Drops project state and file handle
+    *guard = None;  // Drops project state
     Ok(())
 }
 
@@ -357,8 +345,7 @@ pub fn has_project() -> bool {
 
 
 // NOTES
-// Simplified ProjectState pattern for handling project files with file locking
+// Simplified ProjectState pattern for handling project files
 // ProjectState contains all functionality directly without unnecessary wrapper classes
-// File handles use read+write access for stronger Windows file locking
 // Use new_project() for creating unsaved projects, load_project() for loading from disk
-// File handles are automatically managed - acquired on load, released during saves, reacquired after
+// File operations are handled directly without exclusive locking to avoid timing issues

@@ -68,7 +68,7 @@ export function WaveformCanvas({
     // Prevent vertical scrolling on the timeline
     e.preventDefault();
     e.stopPropagation();
-  };
+  }; 
 
   return (
     <div className="rounded bg-zinc-950 border border-zinc-800 p-2 overflow-x-auto overflow-y-hidden">

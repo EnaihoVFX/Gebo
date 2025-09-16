@@ -58,16 +58,6 @@ export type ChatAction = {
   onClick: () => void;
 };
 
-export type Track = {
-  id: string;
-  name: string;
-  type: "video" | "audio" | "text" | "effect";
-  enabled: boolean;
-  muted: boolean;
-  volume: number;
-  order: number;
-};
-
 export type MediaFile = {
   id: string;
   name: string;
@@ -81,16 +71,6 @@ export type MediaFile = {
   width: number;
   height: number;
   type: "video" | "audio";
-};
-
-export type Clip = {
-  id: string;
-  mediaFileId: string;
-  name: string;
-  startTime: number;
-  endTime: number;
-  trackId: string;
-  offset: number; // Position on the timeline
 };
 
 export type ChatSession = {

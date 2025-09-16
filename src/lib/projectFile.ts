@@ -1,8 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-
+import { useState } from "react";
+import { type Probe } from "./ffmpeg";
 export interface Clip {
     id: string,
     path: string, // PathBuf
+    latest_probe?: Probe, // Optional cached probe data
+    type: "Video" | "Audio" | "Image", // Media type
 }
 
 export interface Segment {
@@ -13,7 +16,7 @@ export interface Segment {
     end: number,       // End time in seconds within the clip
 }
 
-export type TrackType = "video" | "audio";
+export type TrackType = "Video" | "Audio" | "Text" | "Effect";
 export interface Track {
     id: string,
     name: string,

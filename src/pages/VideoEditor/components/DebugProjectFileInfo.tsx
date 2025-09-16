@@ -1,23 +1,20 @@
-import { useEffect, useState } from "react";
-import { getProject, loadProject, saveProject, updateProject } from "../../../lib/projectFile";
+import { useProjectFile } from "../hooks/useProjectFileManager";
+import { useMemo } from "react";
 
 export default function DebugProjectFileInfo() {
-    const [projectFile, setProjectFile] = useState<any>(null);
+    const projectManager = useProjectFile();
 
-    useEffect(() => {
-        const fetchData = async () => {
-            const data = await getProject();
-            setProjectFile(data);
-        };
-        fetchData();
-    }, []);
+    // Use the built-in serialization method with forced reactivity
+    const serializedProject = useMemo(() => {
+        return projectManager.getSerializedProject();
+    }, [projectManager.project]);
 
     return (
-        <div className="rounded border border-zinc-800 p-2">
-            <div className="text-xs mb-2 text-zinc-400">Project File Info</div>
-            <div className="text-xs text-zinc-400">
-                <pre>{JSON.stringify(projectFile, null, 2)}</pre>
-            </div>
+        <div className="text-xs text-zinc-400">
+            <div className="mb-2 font-semibold">Project Debug Info:</div>
+            <pre className="whitespace-pre-wrap break-words">
+                {JSON.stringify(serializedProject, null, 2)}
+            </pre>
         </div>
     );
 }
