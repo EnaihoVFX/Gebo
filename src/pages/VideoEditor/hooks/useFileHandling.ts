@@ -1,21 +1,51 @@
-import { useState } from "react";
+import { useState, useCallback, useRef } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { audioPeaks, makePreviewProxy, probeVideo, readFileAsBase64, copyToAppData, readFileChunk, getFileSize, generateThumbnails, type Probe } from "../../../lib/ffmpeg";
-import type { MediaFile } from "../../../types";
+import { audioPeaks, readFileChunk, getFileSize, generateThumbnails } from "../../../lib/ffmpeg";
+import { useProjectFile } from "./useProjectFileManager";
+import type { Clip } from "../../../lib/projectFile";
+
+// Type for the preview data returned by generateThumbnailPreview
+export interface ClipPreviewData {
+  previewUrl: string;
+  peaks: number[];
+  thumbnailUrl?: string;
+  filmstripThumbnails: string[];
+}
+
 
 export function useFileHandling() {
-  const [filePath, setFilePath] = useState<string>("");
-  const [previewUrl, setPreviewUrl] = useState<string>("");
-  const [probe, setProbe] = useState<Probe | null>(null);
-  const [peaks, setPeaks] = useState<number[]>([]);
+  const projectManager = useProjectFile();
+
+  // Cache for preview data to prevent duplicate calls
+  const previewCacheRef = useRef<Map<string, Promise<ClipPreviewData>>>(new Map());
+  const completedPreviewsRef = useRef<Set<string>>(new Set());
+
+  const videoFileTypes = ["mp4", "mov", "mkv", "avi", "webm"];
+  const audioFileTypes = ["mp3", "wav", "aac", "m4a", "flac"];
+  const imageFileTypes = ["png", "jpg", "jpeg", "gif", "bmp", "webp"];
+
+  const filters = [
+    { name: "Video Files", extensions: videoFileTypes },
+    { name: "Audio Files", extensions: audioFileTypes },
+    { name: "Image Files", extensions: imageFileTypes },
+  ];
+
+  const identifyFileType = (filePath: string): "Video" | "Audio" | "Image" => {
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    if (!ext) throw new Error("File has no extension");
+    if (videoFileTypes.includes(ext)) return "Video";
+    if (audioFileTypes.includes(ext)) return "Audio";
+    if (imageFileTypes.includes(ext)) return "Image";
+    throw new Error(`Unknown file type for extension: ${ext}`);
+  };
+
   const [debug, setDebug] = useState<string>("");
-  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
 
   const log = (m: string) => setDebug(d => (d ? d + "\n" : "") + m);
 
   // Function to create blob URL from file chunks
-  const createBlobFromFile = async (filePath: string) => {
+  const createBlobFromFile = async (filePath: string) : Promise<string> => {
     try {
       log(`Creating blob from file chunks...`);
       const fileSize = await getFileSize(filePath);
@@ -29,7 +59,9 @@ export function useFileHandling() {
       for (let offset = 0; offset < fileSize; offset += chunkSize) {
         const currentChunkSize = Math.min(chunkSize, fileSize - offset);
         const chunk = await readFileChunk(filePath, offset, currentChunkSize);
-        chunks.push(new Uint8Array(chunk));
+        // Convert the chunk to Uint8Array properly
+        const uint8Chunk = chunk instanceof ArrayBuffer ? new Uint8Array(chunk) : new Uint8Array(chunk as number[]);
+        chunks.push(uint8Chunk);
         
         // Show progress every 20MB
         if (offset % (chunkSize * 10) === 0) {
@@ -40,7 +72,7 @@ export function useFileHandling() {
       
       log(`All chunks read, creating blob...`);
       // Combine all chunks into a single blob
-      const blob = new Blob(chunks, { type: 'video/mp4' });
+      const blob = new Blob(chunks as BlobPart[], { type: 'video/mp4' });
       const blobUrl = URL.createObjectURL(blob);
       log(`✅ Blob URL created successfully: ${blobUrl}`);
       return blobUrl;
@@ -50,389 +82,273 @@ export function useFileHandling() {
     }
   };
 
-  const pickFile = async () => {
-    try {
-      const sel = await open({ multiple: false, filters: [{ name: "Video", extensions: ["mp4", "MP4", "mov", "MOV", "mkv", "MKV"] }] });
-      if (typeof sel !== "string") return;
-
-      setDebug("");
-      setFilePath(sel);
-
-      log(`Selected file: ${sel}`);
-
-      // Use chunked blob method for reliable video loading
-      try {
-        log(`Creating blob URL for reliable playback...`);
-        const blobUrl = await createBlobFromFile(sel);
-        setPreviewUrl(blobUrl);
-        log(`Using blob URL: ${blobUrl}`);
-      } catch (e: any) {
-        log(`Blob creation failed, falling back to asset protocol: ${e?.toString?.() || e}`);
-        // Fallback to original method
-        const originalUrl = convertFileSrc(sel);
-        setPreviewUrl(originalUrl);
-        log(`Fallback URL: ${originalUrl}`);
-      }
-
-      // Probe + peaks
-      try {
-        log(`Starting probe for: ${sel}`);
-        const p = await probeVideo(sel);
-        setProbe(p);
-        log(`Probed: dur=${p.duration.toFixed(2)}s fps=${p.fps.toFixed(2)} rate=${p.audio_rate} codec=${p.v_codec}/${p.a_codec}`);
-      } catch (e: any) {
-        log(`Probe failed: ${e?.toString?.() || e}`);
-        log(`Error details: ${JSON.stringify(e)}`);
-        return;
-      }
-
-      try {
-        log(`Starting audio peaks for: ${sel}`);
-        const pk = await audioPeaks(sel);
-        setPeaks(pk.map(v => Math.max(0, Math.min(32767, v))));
-        log(`Peaks: ${pk.length}`);
-      } catch (e: any) {
-        log(`Audio peaks failed: ${e?.toString?.() || e}`);
-        log(`Peaks error details: ${JSON.stringify(e)}`);
-        setPeaks([]);
-      }
-
-      // Proactively proxy for MOV/MKV for reliable playback
-      if (/\.(mkv|mov|MKV|MOV)$/i.test(sel)) {
-        try {
-          log(`Creating preview proxy for: ${sel}`);
-          const prox = await makePreviewProxy(sel);
-          log(`Proxy created, creating blob URL for proxy...`);
-          const proxyBlobUrl = await createBlobFromFile(prox);
-          setPreviewUrl(proxyBlobUrl);
-          log(`Using preview proxy blob URL (H.264/AAC): ${proxyBlobUrl}`);
-        } catch (e: any) {
-          log("Proxy failed, continuing with original. " + (e?.toString?.() || e));
-          log(`Proxy error details: ${JSON.stringify(e)}`);
-        }
-      }
-
-      return sel;
-    } catch (e: any) {
-      log(`File picker failed: ${e?.toString?.() || e}`);
-    }
-  };
-
-  const resetApp = () => {
-    setPreviewUrl("");
-    setFilePath("");
-    setProbe(null);
-    setPeaks([]);
-    setDebug("");
-    setMediaFiles([]);
-    log("App reset - cleared all data");
-  };
-
   // Function to add multiple media files
   const pickMultipleFiles = async () => {
-    try {
-      console.log("pickMultipleFiles called - opening dialog...");
-      log("Opening file dialog...");
-      
-      // First, let's test if the open function is available
-      if (typeof open !== 'function') {
-        throw new Error("open function is not available - dialog plugin may not be loaded");
-      }
-      
-      // Try different dialog configurations
-      console.log("Attempting to open file dialog...");
-      
-      // Try multiple file selection directly
-      let selected;
-      console.log("Trying multiple file selection...");
-      try {
-        selected = await open({ 
-          multiple: true,
-          title: "Select Media Files (Hold Cmd/Ctrl to select multiple)",
-          filters: [
-            { 
-              name: "Video Files", 
-              extensions: ["mp4", "mov", "mkv", "avi", "webm"] 
-            },
-            { 
-              name: "Audio Files", 
-              extensions: ["mp3", "wav", "aac", "m4a", "flac"] 
-            },
-            { 
-              name: "All Files", 
-              extensions: ["*"] 
-            }
-          ]
-        });
-        console.log("Multiple file result:", selected);
-      } catch (e) {
-        console.log("Multiple file selection failed, trying single file:", e);
-        // Fallback to single file selection
-        selected = await open({ 
-          multiple: false,
-          title: "Select a Media File",
-          filters: [
-            { 
-              name: "Video Files", 
-              extensions: ["mp4", "mov", "mkv", "avi", "webm"] 
-            },
-            { 
-              name: "Audio Files", 
-              extensions: ["mp3", "wav", "aac", "m4a", "flac"] 
-            },
-            { 
-              name: "All Files", 
-              extensions: ["*"] 
-            }
-          ]
-        });
-        console.log("Single file fallback result:", selected);
-      }
-      
-      console.log("Dialog result:", selected);
-      console.log("Dialog result type:", typeof selected);
-      log(`Dialog result: ${JSON.stringify(selected)}`);
-      
-      if (!selected) {
-        log("No files selected or dialog cancelled");
-        console.log("No files selected or dialog cancelled");
-        return;
-      }
-
-      // Handle both single file (string) and multiple files (array)
-      let filePaths: string[];
-      if (typeof selected === 'string') {
-        filePaths = [selected];
-        log(`Selected 1 file: ${selected}`);
-        console.log("Dialog returned single file (string):", selected);
-      } else if (Array.isArray(selected)) {
-        filePaths = selected;
-        log(`Selected ${selected.length} files`);
-        console.log("Dialog returned multiple files (array):", selected);
-      } else {
-        log("Invalid dialog result format");
-        console.log("Invalid dialog result format:", selected);
-        return;
-      }
-
-      for (const filePath of filePaths) {
-        await addMediaFile(filePath);
-      }
-
-      return selected;
-    } catch (e: any) {
-      console.error("pickMultipleFiles error:", e);
-      log(`Multiple file picker failed: ${e?.toString?.() || e}`);
-      log(`Error details: ${JSON.stringify(e)}`);
-      
-      // Log error instead of alert
-      console.log(`Error opening file dialog: ${e?.toString?.() || e}`);
-      
-      // Fallback: Try using HTML file input
-      console.log("Attempting fallback with HTML file input...");
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.multiple = true;
-      input.accept = 'video/*,audio/*';
-      
-      input.onchange = async (event) => {
-        const files = (event.target as HTMLInputElement).files;
-        if (files && files.length > 0) {
-          console.log(`HTML file input selected ${files.length} files`);
-          log(`HTML file input selected ${files.length} files`);
-          
-          // For now, just show the file names
-          for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            console.log(`File ${i + 1}: ${file.name} (${file.size} bytes)`);
-            log(`File ${i + 1}: ${file.name} (${file.size} bytes)`);
-          }
-        }
-      };
-      
-      input.click();
+    console.log("pickMultipleFiles called - opening dialog...");
+    log("Opening file dialog...");
+    
+    // First, let's test if the open function is available
+    if (typeof open !== 'function') {
+      throw new Error("open function is not available - dialog plugin may not be loaded");
     }
-  };
-
-  // Function to add a single media file to the collection
-  const addMediaFile = async (filePath: string) => {
+    
+    // Try different dialog configurations
+    console.log("Attempting to open file dialog...");
+    
+    // Try multiple file selection directly
+    let selected;
+    console.log("Trying multiple file selection...");
     try {
-      console.log(`Adding media file: ${filePath}`);
-      console.log(`File path type: ${typeof filePath}`);
-      console.log(`File path length: ${filePath.length}`);
-      log(`Adding media file: ${filePath}`);
+      selected = await open({ 
+        multiple: true,
+        title: "Select Media Files (Hold Cmd/Ctrl to select multiple)",
+        filters
+      });
+      console.log("Multiple file result:", selected);
+    } catch (e) {
+      console.log("Multiple file selection failed, trying single file:", e);
+      // Fallback to single file selection
+      selected = await open({ 
+        multiple: false,
+        title: "Select a Media File",
+        filters
+      });
+      console.log("Single file fallback result:", selected);
+    }
+    
+    console.log("Dialog result:", selected);
+    console.log("Dialog result type:", typeof selected);
+    log(`Dialog result: ${JSON.stringify(selected)}`);
+    
+    if (!selected) {
+      log("No files selected or dialog cancelled");
+      console.log("No files selected or dialog cancelled");
+      return;
+    }
 
-      // Validate file path
-      if (!filePath || filePath.trim() === '' || filePath === '/') {
-        log(`Invalid file path: ${filePath}`);
-        console.log(`Invalid file path: ${filePath}`);
-        return;
-      }
+    // Handle both single file (string) and multiple files (array)
+    let filePaths: string[];
+    if (typeof selected === 'string') {
+      filePaths = [selected];
+      log(`Selected 1 file: ${selected}`);
+      console.log("Dialog returned single file (string):", selected);
 
-      // Check if file already exists
-      const existingFile = mediaFiles.find(f => f.path === filePath);
-      if (existingFile) {
-        log(`File already exists: ${filePath}`);
-        return existingFile;
-      }
+    } else if (Array.isArray(selected)) {
+      filePaths = selected;
+      log(`Selected ${selected.length} files`);
+      console.log("Dialog returned multiple files (array):", selected);
 
-      // Create preview URL - use Tauri's convertFileSrc for better performance
-      let previewUrl: string;
+    } else {
+      log("Invalid dialog result format");
+      console.log("Invalid dialog result format:", selected);
+      return;
+    }
+
+    for (const filePath of filePaths) {
       try {
-        // For now, use Tauri's file protocol which is more efficient than blob URLs
-        previewUrl = convertFileSrc(filePath);
-        log(`Using Tauri file protocol for ${filePath}`);
-      } catch (e: any) {
-        log(`File protocol failed for ${filePath}: ${e?.toString?.() || e}`);
-        previewUrl = filePath; // Fallback to direct path
+        // Add to clips
+        if (projectManager.getClips().some(c => c.path === filePath)) {
+          log(`File already added, skipping: ${filePath}`);
+          console.log("File already added, skipping:", filePath);
+          continue;
+        }
+        
+        log(`Creating clip from path: ${filePath}`);
+        await projectManager.createClipFromPath(filePath, identifyFileType(filePath));
+        log(`Successfully created clip for: ${filePath}`);
+      } catch (error) {
+        console.error(`Failed to create clip for ${filePath}:`, error);
+        log(`Failed to create clip for ${filePath}: ${error}`);
       }
+    }
 
-      // Probe the file
-      const probe = await probeVideo(filePath);
-      log(`Probed ${filePath}: dur=${probe.duration.toFixed(2)}s fps=${probe.fps.toFixed(2)} rate=${probe.audio_rate}`);
+    return selected;
+  };  
 
-      // Get audio peaks
-      let peaks: number[] = [];
+  // Function to generate useful data for previewing a clip (with caching)
+  const generateThumbnailPreview = useCallback(async (clip: Clip): Promise<ClipPreviewData> => {
+    console.log("generateThumbnailPreview called for clip:", clip.path);
+    
+    // Check if we already have this clip cached or in progress
+    if (previewCacheRef.current.has(clip.id)) {
+      console.log("Returning cached/in-progress preview for:", clip.path);
+      return previewCacheRef.current.get(clip.id)!;
+    }
+
+    // Check if we already completed this clip
+    if (completedPreviewsRef.current.has(clip.id)) {
+      console.log("Clip already processed, skipping:", clip.path);
+      // Return a simple cached result
+      return {
+        previewUrl: convertFileSrc(clip.path),
+        peaks: [],
+        thumbnailUrl: undefined,
+        filmstripThumbnails: [],
+      };
+    }
+
+    console.log("Starting NEW preview generation for:", clip.path);
+    
+    // Create the promise for this preview generation
+    const previewPromise = (async (): Promise<ClipPreviewData> => {
       try {
-        const audioPeaksData = await audioPeaks(filePath);
-        peaks = audioPeaksData.map(v => Math.max(0, Math.min(32767, v)));
-        log(`Audio peaks for ${filePath}: ${peaks.length}`);
-      } catch (e: any) {
-        log(`Audio peaks failed for ${filePath}: ${e?.toString?.() || e}`);
-      }
+        // Validate clip
+        if (!clip || !clip.path) {
+          log(`Invalid clip provided to generateThumbnailPreview`);
+          return {
+            previewUrl: "",
+            peaks: [],
+            thumbnailUrl: undefined,
+            filmstripThumbnails: [],
+          };
+        }
 
-      // Generate thumbnails (single for preview, multiple for filmstrip)
-      let thumbnailUrl: string | undefined;
-      let thumbnails: string[] = [];
-      try {
-        if (probe.width > 0 && probe.height > 0) {
-          // Generate single thumbnail for preview
-          const singleThumbnails = await generateThumbnails(filePath, 1, 160);
-          if (singleThumbnails.length > 0) {
-            // Convert base64 to blob URL for preview
-            const base64Data = singleThumbnails[0];
-            const byteCharacters = atob(base64Data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: 'image/png' });
-            thumbnailUrl = URL.createObjectURL(blob);
-          }
+        log(`Starting preview generation for clip: ${clip.path}`);
 
-          // Generate multiple thumbnails for filmstrip based on duration
-          log(`Generating filmstrip thumbnails for ${filePath}...`);
-          log(`File path: ${filePath}, Duration: ${probe.duration}s, Width: ${probe.width}, Height: ${probe.height}`);
-          
-          let filmstripThumbnails: string[] = [];
+        // Create preview URL - use Tauri's convertFileSrc for better performance
+        let previewUrl: string;
+        try {
+          // For now, use Tauri's file protocol which is more efficient than blob URLs
+          previewUrl = convertFileSrc(clip.path);
+          log(`Using Tauri file protocol for ${clip.path}`);
+        } catch (e: any) {
+          log(`File protocol failed for ${clip.path}: ${e?.toString?.() || e}`);
+          previewUrl = clip.path; // Fallback to direct path
+        }
+
+        // Get audio peaks
+        let peaks: number[] = [];
+        if (clip.type === "Audio" || clip.type === "Video") {
+          log(`Getting audio peaks for: ${clip.path}`);
           try {
-            // Generate thumbnails based on duration: 1 thumbnail per 2 seconds, minimum 5, maximum 50
-            const thumbnailCount = Math.max(5, Math.min(50, Math.floor(probe.duration / 2)));
-            log(`Generating ${thumbnailCount} thumbnails based on ${probe.duration}s duration`);
-            
-            filmstripThumbnails = await generateThumbnails(filePath, thumbnailCount, 80);
-            log(`Raw filmstrip thumbnails received: ${filmstripThumbnails.length}`);
-            log(`First thumbnail length: ${filmstripThumbnails[0]?.length || 0} characters`);
-          } catch (thumbError) {
-            log(`generateThumbnails function failed: ${thumbError}`);
-            throw thumbError;
+            const audioPeaksData = await audioPeaks(clip.path);
+            peaks = audioPeaksData.map(v => Math.max(0, Math.min(32767, v)));
+            log(`Audio peaks for ${clip.path}: ${peaks.length} samples`);
+          } catch (e: any) {
+            log(`Audio peaks failed for ${clip.path}: ${e?.toString?.() || e}`);
           }
-          
-          thumbnails = filmstripThumbnails.map((base64Data, index) => {
-            try {
-              const byteCharacters = atob(base64Data);
-              const byteNumbers = new Array(byteCharacters.length);
-              for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-              }
-              const byteArray = new Uint8Array(byteNumbers);
-              const blob = new Blob([byteArray], { type: 'image/png' });
-              const blobUrl = URL.createObjectURL(blob);
-              log(`Created blob URL for thumbnail ${index}: ${blobUrl}`);
-              return blobUrl;
-            } catch (e) {
-              log(`Error creating blob URL for thumbnail ${index}: ${e}`);
-              return '';
-            }
-          });
-          log(`Generated ${thumbnails.length} filmstrip thumbnails for ${filePath}`);
         }
-      } catch (e: any) {
-        log(`Thumbnail generation failed for ${filePath}: ${e?.toString?.() || e}`);
-        log(`Thumbnail error details: ${JSON.stringify(e)}`);
-        // Set empty thumbnails array so we fall back to single thumbnail
-        thumbnails = [];
+
+        // Helper function to convert base64 to blob URL
+        const base64ToBlob = (base64Data: string): string => {
+          const byteCharacters = atob(base64Data);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: 'image/png' });
+          return URL.createObjectURL(blob);
+        };
+
+        // Generate thumbnails for video and image clips
+        let thumbnailUrl: string | undefined;
+        let filmstripThumbnails: string[] = [];
+        
+        if (clip.type === "Video") {
+          try {
+            // Generate single thumbnail for preview
+            log(`Generating preview thumbnail for ${clip.path}`);
+            const singleThumbnails = await generateThumbnails(clip.path, 1, 160);
+            if (singleThumbnails.length > 0) {
+              thumbnailUrl = base64ToBlob(singleThumbnails[0]);
+              log(`Generated preview thumbnail for ${clip.path}`);
+            }
+
+            // Generate filmstrip thumbnails based on duration
+            const duration = clip.latest_probe?.duration || 10; // Default to 10s if no probe data
+            const thumbnailCount = Math.max(5, Math.min(50, Math.floor(duration / 2)));
+            log(`Generating ${thumbnailCount} filmstrip thumbnails based on ${duration}s duration`);
+
+            const rawFilmstripThumbnails = await generateThumbnails(clip.path, thumbnailCount, 80);
+            log(`Raw filmstrip thumbnails received: ${rawFilmstripThumbnails.length}`);
+
+            filmstripThumbnails = rawFilmstripThumbnails
+              .map((base64Data, index) => {
+                try {
+                  const blobUrl = base64ToBlob(base64Data);
+                  log(`Created filmstrip thumbnail ${index + 1}/${rawFilmstripThumbnails.length}`);
+                  return blobUrl;
+                } catch (e) {
+                  log(`Error creating filmstrip thumbnail ${index}: ${e}`);
+                  return '';
+                }
+              })
+              .filter(url => url !== ''); // Remove failed thumbnails
+
+            log(`Generated ${filmstripThumbnails.length} filmstrip thumbnails for ${clip.path}`);
+          } catch (thumbError) {
+            log(`Thumbnail generation failed for ${clip.path}: ${thumbError}`);
+          }
+        } else if (clip.type === "Image") {
+          try {
+            // For image files, use the image itself as the thumbnail
+            log(`Using image file as thumbnail for ${clip.path}`);
+            thumbnailUrl = previewUrl; // Use the same URL as preview
+            log(`Set thumbnail URL for image: ${clip.path}`);
+          } catch (imageError) {
+            log(`Failed to set thumbnail for image ${clip.path}: ${imageError}`);
+          }
+        }
+
+        // Return the preview data
+        const previewData = {
+          previewUrl,
+          peaks,
+          thumbnailUrl,
+          filmstripThumbnails,
+        };
+
+        log(`Generated preview data for ${clip.path}: ${JSON.stringify({
+          previewUrl: previewData.previewUrl ? "✓" : "✗",
+          peaks: previewData.peaks.length,
+          thumbnailUrl: previewData.thumbnailUrl ? "✓" : "✗",
+          filmstripCount: previewData.filmstripThumbnails.length,
+        })}`);
+
+        // Mark as completed
+        completedPreviewsRef.current.add(clip.id);
+        console.log("Completed preview generation for:", clip.path);
+
+        return previewData;
+
+      } catch (error) {
+        log(`Failed to generate preview data for ${clip.path}: ${error}`);
+        console.error("Preview generation error:", error);
+        
+        // Mark as completed even on error to prevent retries
+        completedPreviewsRef.current.add(clip.id);
+        
+        // Return minimal fallback data
+        return {
+          previewUrl: clip.path,
+          peaks: [],
+          thumbnailUrl: undefined,
+          filmstripThumbnails: [],
+        };
+      } finally {
+        // Remove from cache when done (successful or failed)
+        previewCacheRef.current.delete(clip.id);
       }
+    })();
 
-      // Determine file type and handle audio files properly
-      const isVideo = probe.width > 0 && probe.height > 0;
-      const fileType: "video" | "audio" = isVideo ? "video" : "audio";
-      
-      // For audio files, set width/height to 0
-      const finalWidth = isVideo ? probe.width : 0;
-      const finalHeight = isVideo ? probe.height : 0;
-
-      // Create media file object
-      const mediaFile: MediaFile = {
-        id: `media-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        name: filePath.split('/').pop() || filePath,
-        path: filePath,
-        previewUrl,
-        thumbnailUrl,
-        thumbnails: thumbnails.length > 0 ? thumbnails : undefined,
-        probe,
-        peaks,
-        duration: probe.duration,
-        width: finalWidth,
-        height: finalHeight,
-        type: fileType
-      };
-
-      // Add to media files
-      setMediaFiles(prev => [...prev, mediaFile]);
-      log(`✅ Added media file: ${mediaFile.name}`);
-
-      return mediaFile;
-    } catch (e: any) {
-      log(`❌ Failed to add media file ${filePath}: ${e?.toString?.() || e}`);
-      throw e;
-    }
-  };
+    // Store the promise in cache
+    previewCacheRef.current.set(clip.id, previewPromise);
+    
+    return previewPromise;
+  }, [log]);
 
   // Function to remove a media file
-  const removeMediaFile = (mediaId: string) => {
-    setMediaFiles(prev => {
-      const fileToRemove = prev.find(f => f.id === mediaId);
-      if (fileToRemove) {
-        // Revoke blob URL to free memory
-        if (fileToRemove.previewUrl.startsWith('blob:')) {
-          URL.revokeObjectURL(fileToRemove.previewUrl);
-        }
-        if (fileToRemove.thumbnailUrl?.startsWith('blob:')) {
-          URL.revokeObjectURL(fileToRemove.thumbnailUrl);
-        }
-        log(`Removed media file: ${fileToRemove.name}`);
-        return prev.filter(f => f.id !== mediaId);
-      }
-      return prev;
-    });
+  const removeMediaFile = (_mediaId: string) => {
+    // TODO: Implement media file removal
   };
 
   return {
-    filePath,
-    previewUrl,
-    probe,
-    peaks,
     debug,
     log,
-    setPreviewUrl,
     createBlobFromFile,
-    pickFile,
-    resetApp,
-    mediaFiles,
     pickMultipleFiles,
-    addMediaFile,
+    generateThumbnailPreview,
     removeMediaFile,
   };
 }

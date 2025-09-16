@@ -1,12 +1,12 @@
 use anyhow::{anyhow, Context, Result};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// --- Public Types ------------------------------------------------------------------
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Probe {
   pub duration: f64,
   pub width: u32,

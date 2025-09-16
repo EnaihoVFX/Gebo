@@ -38,7 +38,6 @@ fn read_file_as_base64(path: String) -> Result<String, String> {
 #[tauri::command]
 fn download_audio_file(url: String, filename: String) -> Result<String, String> {
   use std::fs;
-  use std::path::PathBuf;
   
   // Create downloads directory if it doesn't exist
   let app_data_dir = dirs::data_dir()

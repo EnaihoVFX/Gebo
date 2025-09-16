@@ -25,6 +25,8 @@ import {
   GripVertical
 } from 'lucide-react';
 import type { Range } from '../../../types';
+import { useProjectFile } from '../hooks/useProjectFileManager';
+import DebugProjectFileInfo from './DebugProjectFileInfo';
 
 interface LogEntry {
   id: string;
@@ -61,7 +63,6 @@ interface DeveloperOverlayProps {
   peaks: number[];
   acceptedCuts: Range[];
   previewCuts: Range[];
-  projectFile?: any;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -74,7 +75,6 @@ export function DeveloperOverlay({
   peaks,
   acceptedCuts,
   previewCuts,
-  projectFile,
   isOpen,
   onClose
 }: DeveloperOverlayProps) {
@@ -87,6 +87,7 @@ export function DeveloperOverlay({
   const [sourceFilter, setSourceFilter] = useState<'all' | 'browser' | 'ffmpeg'>('all');
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['project-info', 'media-info']));
   const [autoScroll, setAutoScroll] = useState(true);
+  const projectManager = useProjectFile();
   
   // Overlay mode states
   const [isMinimal, setIsMinimal] = useState(false);
@@ -666,11 +667,11 @@ export function DeveloperOverlay({
                           <div className="text-white font-mono text-sm">{peaks.length}</div>
                         </div>
                       </div>
-                      {projectFile && (
+                      {projectManager.project && (
                         <div className="mt-4">
                           <label className="text-slate-400 text-sm">Project File Data</label>
                           <pre className="bg-slate-900 p-3 rounded text-xs text-slate-300 overflow-x-auto mt-2">
-                            {JSON.stringify(projectFile, null, 2)}
+                            <DebugProjectFileInfo /> 
                           </pre>
                         </div>
                       )}
