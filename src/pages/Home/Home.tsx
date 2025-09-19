@@ -1,14 +1,44 @@
 import { openProjectPicker, saveProjectPicker } from './utils/fileUtils';
-import { loadProject, newProject, saveProject, updateProject, type ProjectFile } from '../../lib/projectFile';
+import { loadProject, newProject, type ProjectFile } from '../../lib/projectFile';
+import { getRecentProjects, addRecentProject } from '../../lib/longtermStorage';
 import FormModal from '../../components/FormModal';
 import LoadingScreen from '../../components/LoadingScreen';
 import { openEditorWindow } from '../../lib/windowManager';
-import { useState } from 'react';
+import RecentProject from './components/recentProject.tsx';
+import { useState, useEffect } from 'react';
 
 export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingProjectTitle, setLoadingProjectTitle] = useState<string | undefined>();
+  const [recentProjects, setRecentProjects] = useState<string[]>([]);
+
+  // Load recent projects on mount
+  useEffect(() => {
+    loadRecentProjects();
+
+    // Refresh recent projects when window gains focus
+    const handleFocus = () => {
+      loadRecentProjects();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
+  // Function to load/refresh recent projects
+  const loadRecentProjects = async () => {
+    try {
+      const projects = await getRecentProjects();
+      console.log('Loaded recent projects:', projects);
+      setRecentProjects(projects);
+    } catch (error) {
+      console.error('Failed to load recent projects:', error);
+    }
+  };
 
   const openFlow = async () => {
     // Get project path
@@ -26,6 +56,12 @@ export default function Home() {
       // Open project file
       const projectFile = await loadProject(path);
 
+      // Add to recent projects
+      await addRecentProject(path);
+
+      // Refresh recent projects list
+      await loadRecentProjects();
+
       // Set project title for loading screen
       setLoadingProjectTitle(projectFile.title);
 
@@ -35,6 +71,12 @@ export default function Home() {
       setLoadingProjectTitle(undefined);
       setIsLoading(false);
     }
+  };
+
+  // Handle recent project loading (called from RecentProject component)
+  const handleRecentProjectLoading = (title: string) => {
+    setIsLoading(true);
+    setLoadingProjectTitle(title);
   };
 
   const createFlow = async (values: { [key: string]: string | number | boolean }) => {
@@ -53,6 +95,12 @@ export default function Home() {
 
     try {
       await newProject(projectFile); // Set rust backend projectFile = this new one we have created
+
+      // Add to recent projects
+      await addRecentProject(path);
+
+      // Refresh recent projects list
+      await loadRecentProjects();
 
       // The loading screen will handle the navigation after completion
     } catch (error) {
@@ -83,11 +131,37 @@ export default function Home() {
           projectTitle={loadingProjectTitle}
         />
       ) : (
-        <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">
-          <div className="text-center">
-            <img src="/logo.png" alt="Video Editor Logo" className="h-16 mb-4 mx-auto" />
-            <button onClick={openFlow} className="px-4 py-2 bg-cyan-600 text-white rounded mr-2">Open Project</button>
-            <button onClick={() => setModalOpen(true)} className="px-4 py-2 bg-zinc-600 text-white rounded">Create New Project</button>
+        <div className="min-h-screen bg-zinc-950 text-zinc-100">
+          <div className="max-w-6xl mx-auto p-8">
+            {/* Main Header and Actions */}
+            <div className="text-center mb-12">
+              <img src="/logo.png" alt="Video Editor Logo" className="h-16 mb-6 mx-auto" />
+              <div className="space-y-3 max-w-sm mx-auto">
+                <button onClick={openFlow} className="block w-full px-6 py-3 bg-cyan-600 text-white rounded hover:bg-cyan-700 transition-colors">
+                  Open Project
+                </button>
+                <button onClick={() => setModalOpen(true)} className="block w-full px-6 py-3 bg-zinc-600 text-white rounded hover:bg-zinc-700 transition-colors">
+                  Create New Project
+                </button>
+              </div>
+            </div>
+
+            {/* Recent Projects Section */}
+            {recentProjects.length > 0 && (
+              <div>
+                <h2 className="text-lg font-medium mb-4 text-center text-zinc-300">Recent Projects</h2>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 max-w-5xl mx-auto">
+                  {recentProjects.map((projectPath, index) => (
+                    <RecentProject
+                      key={index}
+                      projectPath={projectPath}
+                      onLoadingStart={handleRecentProjectLoading}
+                      onProjectOpened={loadRecentProjects}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
