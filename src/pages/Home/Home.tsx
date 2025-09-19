@@ -134,9 +134,9 @@ export default function Home() {
         <div className="min-h-screen bg-zinc-950 text-zinc-100">
           <div className="max-w-6xl mx-auto p-8">
             {/* Main Header and Actions */}
-            <div className="text-center mb-12">
+            <div className="text-center mb-12 mt-12">
               <img src="/logo.png" alt="Video Editor Logo" className="h-16 mb-6 mx-auto" />
-              <div className="space-y-3 max-w-sm mx-auto">
+              <div className="space-y-3 max-w-sm mx-auto mt-12">
                 <button onClick={openFlow} className="block w-full px-6 py-3 bg-cyan-600 text-white rounded hover:bg-cyan-700 transition-colors">
                   Open Project
                 </button>
@@ -149,17 +149,17 @@ export default function Home() {
             {/* Recent Projects Section */}
             {recentProjects.length > 0 && (
               <div>
-                <h2 className="text-lg font-medium mb-4 text-center text-zinc-300">Recent Projects</h2>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 max-w-5xl mx-auto">
-                  {recentProjects.map((projectPath, index) => (
-                    <RecentProject
-                      key={index}
-                      projectPath={projectPath}
-                      onLoadingStart={handleRecentProjectLoading}
-                      onProjectOpened={loadRecentProjects}
-                    />
-                  ))}
-                </div>
+              <h2 className="text-lg font-medium mb-4 text-center text-zinc-300">Recent Projects</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-4xl mx-auto">
+                {recentProjects.slice(0, 4).map((projectPath, index) => (
+                <RecentProject
+                  key={index}
+                  projectPath={projectPath}
+                  onLoadingStart={handleRecentProjectLoading}
+                  onProjectOpened={loadRecentProjects}
+                />
+                ))}
+              </div>
               </div>
             )}
           </div>

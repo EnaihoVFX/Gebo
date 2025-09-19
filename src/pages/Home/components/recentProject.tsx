@@ -113,7 +113,7 @@ export default function RecentProject({ projectPath, onLoadingStart, onProjectOp
       
       <div className="flex items-center justify-between mt-2 pt-2 border-t border-zinc-700">
         <div className="text-zinc-500 text-xs">
-          {Object.keys(projectDetails.clips_map || {}).length}c • {Object.keys(projectDetails.tracks_map || {}).length}t
+          {Object.keys(projectDetails.clips_map || {}).length} clips • {Object.keys(projectDetails.tracks_map || {}).length} tracks
         </div>
         <div className="text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity text-xs">
           →
