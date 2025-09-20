@@ -27,7 +27,7 @@ import { DeveloperOverlay } from "./components/DeveloperOverlay";
 import Modal from "../../components/Modal";
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
-import { useProjectFileStore } from '../../stores/projectFileStore';
+import { useProjectFile } from './hooks/useProjectFileManager';
 
 // Panel Components
 const TransitionsPanel = () => (
@@ -136,8 +136,9 @@ export default function VideoEditor() {
   // Developer overlay
   const [showDeveloperOverlay, setShowDeveloperOverlay] = useState(false);
   
-  // Project file store
-  const projectFile = useProjectFileStore(state => state.projectFile);
+  // Project manager (from merged PR)
+  const projectManager = useProjectFile();
+  const projectFile = projectManager.getSerializedProject();
 
   // Players control
   const editedRef = useRef<PlayerHandle>(null);

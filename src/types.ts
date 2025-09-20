@@ -73,6 +73,27 @@ export type MediaFile = {
   type: "video" | "audio";
 };
 
+// Timeline UI types used by AdvancedTimeline/VideoEditor (distinct from lib/projectFile)
+export type Track = {
+  id: string;
+  name: string;
+  type: "video" | "audio";
+  enabled: boolean;
+  muted: boolean;
+  volume: number;
+  order: number;
+};
+
+export type Clip = {
+  id: string;
+  mediaFileId: string;
+  name: string;
+  startTime: number;
+  endTime: number;
+  trackId: string;
+  offset: number;
+};
+
 export type ChatSession = {
   id: string;
   name: string;
