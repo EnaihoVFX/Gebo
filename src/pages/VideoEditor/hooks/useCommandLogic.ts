@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Range } from "../../../types";
+import type { Range } from "../types";
 
 export function useCommandLogic(probe: any, log: (m: string) => void) {
   const [showCommandDialog, setShowCommandDialog] = useState(false);

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState } from "react";
 import { exportCutlist } from "../../lib/ffmpeg";
-import type { Range, PlayerHandle } from "../../types";
+import type { Range, PlayerHandle, Track, Clip } from "../../types";
 import { Player } from "./components/Player";
 import { AdvancedTimeline, type AdvancedTimelineHandle } from "./components/AdvancedTimeline";
+import { VideoTimeline } from "./components/VideoTimeline";
 import { CommandDialog } from "./components/CommandDialog";
 import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
@@ -12,18 +13,21 @@ import Footer from "./components/Footer";
 import { useFileHandling } from "./hooks/useFileHandling";
 import { useWaveformLogic } from "./hooks/useWaveformLogic";
 import { useCommandLogic } from "./hooks/useCommandLogic";
-import { ClipGrid } from "./components/ClipGrid";
+import { MediaGrid } from "./components/MediaGrid";
 import { SongLibrary } from "./components/SongLibrary";
 import { 
   Home, 
+  Info, 
   BarChart3, 
   Play
 } from "lucide-react";
 
+import DebugProjectFileInfo from "./components/DebugProjectFileInfo";
 import { DeveloperOverlay } from "./components/DeveloperOverlay";
+import Modal from "../../components/Modal";
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
-import { useProjectFile } from "./hooks/useProjectFileManager";
+import { useProjectFileStore } from '../../stores/projectFileStore';
 
 // Panel Components
 const TransitionsPanel = () => (
@@ -80,12 +84,38 @@ const FiltersPanel = () => (
 export default function VideoEditor() {
   console.log("VideoEditor component rendering...");
   
+  const [jsonModal, setJsonModal] = useState(false); // JSON Data modal state
   const [activePanel, setActivePanel] = useState<'media' | 'transitions' | 'audio' | 'text' | 'effects' | 'filters'>('media'); // Active panel state
 
   // Edits
   const [previewCuts, setPreviewCuts] = useState<Range[]>([]);
   const [acceptedCuts, setAcceptedCuts] = useState<Range[]>([]);
+  
+  // Tracks - Start with default video and audio tracks centered vertically
+  const [tracks, setTracks] = useState<Track[]>([
+    {
+      id: 'video-1',
+      name: 'Video Track',
+      type: 'video',
+      enabled: true,
+      muted: false,
+      volume: 100,
+      order: 0  // Center position
+    },
+    {
+      id: 'audio-1',
+      name: 'Audio Track',
+      type: 'audio',
+      enabled: true,
+      muted: false,
+      volume: 100,
+      order: 1  // Just below center
+    }
+  ]);
 
+  // Clips on timeline
+  const [clips, setClips] = useState<Clip[]>([]);
+  
   // Undo/Redo system
   const [editHistory, setEditHistory] = useState<Range[][]>([[]]);
   const [historyIndex, setHistoryIndex] = useState(0);
@@ -93,6 +123,9 @@ export default function VideoEditor() {
   
   // Export dialog
   const [showExportDialog, setShowExportDialog] = useState(false);
+  
+  // Timeline view mode
+  const [useAdvancedTimeline] = useState(true);
   
   // Zoom level tracking
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -102,9 +135,9 @@ export default function VideoEditor() {
   
   // Developer overlay
   const [showDeveloperOverlay, setShowDeveloperOverlay] = useState(false);
-
-  // Segment selection (for new timeline system)
-  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
+  
+  // Project file store
+  const projectFile = useProjectFileStore(state => state.projectFile);
 
   // Players control
   const editedRef = useRef<PlayerHandle>(null);
@@ -112,50 +145,27 @@ export default function VideoEditor() {
 
   // Custom hooks
   const {
+    filePath,
+    previewUrl,
+    probe,
+    peaks,
     debug,
     log,
+    mediaFiles,
     pickMultipleFiles,
-    generateThumbnailPreview,
+    removeMediaFile,
   } = useFileHandling();
 
-  const projectManager = useProjectFile();
+  // Debug: Log the pickMultipleFiles function
+  console.log("pickMultipleFiles function:", typeof pickMultipleFiles, pickMultipleFiles);
+  console.log("VideoEditor state:", { 
+    mediaFiles: mediaFiles.length, 
+    filePath, 
+    probe: !!probe,
+    showMobileDebug 
+  });
 
-  // Get clips from project manager
-  const clips = projectManager.getClips();
-  
-  // Get primary clip for video operations (first video clip or first clip)
-  const primaryClip = useMemo(() => {
-    const videoClips = clips.filter(clip => clip.type === 'Video');
-    return videoClips.length > 0 ? videoClips[0] : clips[0];
-  }, [clips]);
-
-  // Get primary clip data for hooks and UI
-  const primaryClipPath = primaryClip?.path || "";
-  const primaryClipProbe = primaryClip?.latest_probe || null;
-  
-  // Generate preview data for primary clip (combined effect to prevent duplicate calls)
-  const [primaryClipPeaks, setPrimaryClipPeaks] = useState<number[]>([]);
-  const [primaryClipPreviewUrl, setPrimaryClipPreviewUrl] = useState<string>("");
-  
-  useEffect(() => {
-    if (primaryClip) {
-      // Generate both peaks and preview URL in a single call
-      generateThumbnailPreview(primaryClip)
-        .then(previewData => {
-          setPrimaryClipPeaks(previewData.peaks);
-          setPrimaryClipPreviewUrl(previewData.previewUrl);
-        })
-        .catch(error => {
-          console.error('Failed to generate preview data for primary clip:', error);
-        });
-    } else {
-      // Clear data when no primary clip
-      setPrimaryClipPeaks([]);
-      setPrimaryClipPreviewUrl("");
-    }
-  }, [primaryClip?.id]); // Only depend on clip ID, not the function
-
-  const { mergeRanges, detectSilences, tightenSilences } = useWaveformLogic(primaryClipProbe, primaryClipPeaks);
+  const { mergeRanges, detectSilences, tightenSilences } = useWaveformLogic(probe, peaks);
 
   const {
     showCommandDialog,
@@ -164,7 +174,7 @@ export default function VideoEditor() {
     setShowCommandDialog,
     openCommand,
     executeCommand,
-  } = useCommandLogic(primaryClipProbe, log);
+  } = useCommandLogic(probe, log);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -268,46 +278,116 @@ export default function VideoEditor() {
     log(`Manual cut added: ${range.start.toFixed(2)}s - ${range.end.toFixed(2)}s`);
   };
 
-  // Handle segment selection
-  const handleSegmentSelect = (segmentId: string | null) => {
-    setSelectedSegmentId(segmentId);
-    if (segmentId) {
-      log(`Selected segment: ${segmentId}`);
+  const handleRemoveCut = (index: number) => {
+    if (index >= 0 && index < acceptedCuts.length) {
+      const removedCut = acceptedCuts[index];
+      const newAcceptedCuts = acceptedCuts.filter((_, i) => i !== index);
+      setAcceptedCuts(newAcceptedCuts);
+      saveToHistory(newAcceptedCuts);
+      log(`Removed cut ${index + 1}: ${removedCut.start.toFixed(2)}s - ${removedCut.end.toFixed(2)}s`);
     }
   };
 
-  // Handle segment deletion
-  const handleDeleteSegment = (trackId: string, segmentId: string) => {
-    const track = projectManager.getTracks().find(t => t.id === trackId);
-    if (track) {
-      const segment = track.segments?.find(s => s.id === segmentId);
-      if (segment) {
-        // Remove segment from track
-        const updatedTrack = {
-          ...track,
-          segments: track.segments?.filter(s => s.id !== segmentId) || []
-        };
-        projectManager.updateTrack(trackId, updatedTrack);
-        
-        // Clear selection if this segment was selected
-        if (selectedSegmentId === segmentId) {
-          setSelectedSegmentId(null);
-        }
-        
-        log(`Deleted segment ${segmentId} from track ${track.name}`);
+
+  // Track management functions
+  const updateTrack = (trackId: string, updates: Partial<Track>) => {
+    setTracks(prevTracks => 
+      prevTracks.map(track => 
+        track.id === trackId ? { ...track, ...updates } : track
+      )
+    );
+  };
+
+  // Handle dropping media files onto timeline tracks
+  const handleDropMedia = (mediaFile: any, trackId: string, offset: number, event?: React.DragEvent) => {
+    console.log("handleDropMedia called with:", { mediaFile, trackId, offset });
+    console.log("MediaFile object:", mediaFile);
+    console.log("Current clips before drop:", clips.length);
+    log(`Dropped ${mediaFile.name} onto track ${trackId} at ${offset.toFixed(2)}s`);
+    
+    // Create a clip from the media file
+    // Use full video duration
+    const clipDuration = mediaFile.duration;
+    
+    // Check if user wants manual placement (hold Shift key)
+    const isManualPlacement = event?.shiftKey || false;
+    
+    let finalOffset = offset;
+    
+    if (!isManualPlacement) {
+      // Auto-placement: Find the next available position (end of last clip on this track)
+      const existingClipsOnTrack = clips.filter(clip => clip.trackId === trackId);
+      let nextAvailableOffset = 0;
+      
+      if (existingClipsOnTrack.length > 0) {
+        // Find the latest end time of clips on this track
+        const latestEndTime = Math.max(...existingClipsOnTrack.map(clip => clip.offset + (clip.endTime - clip.startTime)));
+        nextAvailableOffset = latestEndTime;
       }
+      
+      finalOffset = nextAvailableOffset;
+      log(`Auto-placing clip at ${finalOffset.toFixed(2)}s (next available position)`);
+    } else {
+      log(`Manual placement at ${finalOffset.toFixed(2)}s (Shift key held)`);
     }
+    
+    const clip: Clip = {
+      id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      mediaFileId: mediaFile.id,
+      name: mediaFile.name,
+      startTime: 0, // Start from beginning of media
+      endTime: clipDuration, // Use limited duration
+      trackId: trackId,
+      offset: finalOffset
+    };
+    
+    console.log("Created clip:", clip);
+    
+    // Add clip to state
+    setClips(prevClips => {
+      const newClips = [...prevClips, clip];
+      console.log("Updated clips array:", newClips);
+      console.log("New clip created:", clip);
+      log(`Created clip: ${clip.name} (${clip.startTime.toFixed(2)}s - ${clip.endTime.toFixed(2)}s) at offset ${clip.offset.toFixed(2)}s`);
+      log(`Total clips now: ${newClips.length}`);
+      return newClips;
+    });
+
+    // Note: Clips are now independent and don't need to be converted to cuts
+    // Each clip will show its own waveform and thumbnail
   };
 
-  // Handle removing clips
-  const handleRemoveClip = async (clipId: string) => {
-    try {
-      await projectManager.removeClip(clipId);
-      log(`Removed clip ${clipId}`);
-    } catch (error) {
-      console.error('Failed to remove clip:', error);
-      log(`Failed to remove clip ${clipId}: ${error}`);
-    }
+  const addTrack = (type: Track['type']) => {
+    const newTrack: Track = {
+      id: `${type}-${Date.now()}`,
+      name: `${type.charAt(0).toUpperCase() + type.slice(1)} Track ${tracks.filter(t => t.type === type).length + 1}`,
+      type,
+      enabled: true,
+      muted: false,
+      volume: 100,
+      order: 0 // Will be calculated based on position
+    };
+
+    setTracks(prevTracks => {
+      const videoTracks = prevTracks.filter(t => t.type === 'video');
+      const audioTracks = prevTracks.filter(t => t.type === 'audio');
+      
+      if (type === 'video') {
+        // Add video tracks above existing video tracks (negative order values)
+        const newOrder = videoTracks.length > 0 ? Math.min(...videoTracks.map(t => t.order)) - 1 : -1;
+        newTrack.order = newOrder;
+        
+        return [...prevTracks, newTrack];
+      } else {
+        // Add audio tracks below existing audio tracks (positive order values)
+        const newOrder = audioTracks.length > 0 ? Math.max(...audioTracks.map(t => t.order)) + 1 : 2;
+        newTrack.order = newOrder;
+        
+        return [...prevTracks, newTrack];
+      }
+    });
+    
+    log(`Added new ${type} track: ${newTrack.name}`);
   };
 
   // Temporarily disabled: Function to automatically delete empty tracks
@@ -325,6 +405,19 @@ export default function VideoEditor() {
   //     }
   //   }
   // }, [clips, tracks, log]);
+
+  const deleteClip = (clipId: string) => {
+    const clip = clips.find(c => c.id === clipId);
+    if (clip) {
+      setClips(prevClips => prevClips.filter(c => c.id !== clipId));
+      log(`Deleted clip: ${clip.name}`);
+
+      // Temporarily disabled: Check if we need to delete empty tracks after removing this clip
+      // setTimeout(() => {
+      //   deleteEmptyTracks();
+      // }, 0);
+    }
+  };
 
   // Mark In/Out functionality
   const markIn = () => {
@@ -347,10 +440,7 @@ export default function VideoEditor() {
 
   // ---------- Export ----------
   const onExport = async () => {
-    if (!primaryClipPath || !primaryClipProbe) {
-      alert("No primary clip loaded for export.");
-      return;
-    }
+    if (!filePath || !probe) return;
     if (!acceptedCuts.length) { 
       alert("No accepted cuts yet."); 
       return; 
@@ -360,12 +450,9 @@ export default function VideoEditor() {
 
   const handleExportWithOptions = async (savePath: string, options: unknown) => {
     try {
-      if (!primaryClipPath) {
-        throw new Error("No primary clip available for export");
-      }
       // For now, use the basic exportCutlist function
       // In a real implementation, you would modify FFmpeg parameters based on options
-      await exportCutlist(primaryClipPath, savePath, acceptedCuts);
+      await exportCutlist(filePath, savePath, acceptedCuts);
       log(`Exported to ${savePath} with options: ${JSON.stringify(options)}`);
     } catch (error) {
       console.error('Export failed:', error);
@@ -385,7 +472,7 @@ export default function VideoEditor() {
   // Frame-by-frame navigation
   const frameStep = (direction: 'forward' | 'backward') => {
     const currentTime = editedRef.current?.currentTime() || 0;
-    const frameRate = primaryClipProbe?.fps || 30;
+    const frameRate = probe?.fps || 30;
     const frameDuration = 1 / frameRate;
     const newTime = direction === 'forward' 
       ? currentTime + frameDuration 
@@ -482,7 +569,7 @@ export default function VideoEditor() {
           break;
         case 'end':
           e.preventDefault();
-          seekVideo(primaryClipProbe?.duration || 0);
+          seekVideo(probe?.duration || 0);
           break;
         case 'enter':
           if (e.shiftKey) {
@@ -505,7 +592,7 @@ export default function VideoEditor() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [primaryClipProbe, undo, redo, markIn, markOut, togglePlay, acceptPlan, rejectPlan, previewCuts, handleGoHome]);
+  }, [probe, undo, redo, markIn, markOut, togglePlay, acceptPlan, rejectPlan, previewCuts, handleGoHome]);
 
   // Track zoom level from AdvancedTimeline
   useEffect(() => {
@@ -518,7 +605,18 @@ export default function VideoEditor() {
     return () => clearInterval(interval);
   }, []);
 
-  const duration = primaryClipProbe?.duration || 0;
+  // Automatically delete empty tracks when clips change
+  // Temporarily disabled: Automatically delete empty tracks when clips or tracks change
+  // useEffect(() => {
+  //   deleteEmptyTracks();
+  // }, [deleteEmptyTracks]);
+
+  const duration = probe?.duration || 0;
+
+  const getFileName = (path: string) => {
+    if (!path) return "No file loaded";
+    return path.split('/').pop() || path.split('\\').pop() || path;
+  };
 
   // Test if basic JavaScript is working
   console.log("About to render VideoEditor component");
@@ -543,20 +641,20 @@ export default function VideoEditor() {
                 </button>
               </div>
               <div>
-                <span className="text-slate-400">Primary Clip:</span>
-                <div className="text-slate-300 break-all">{primaryClipPath || "None"}</div>
+                <span className="text-slate-400">File Path:</span>
+                <div className="text-slate-300 break-all">{filePath || "None"}</div>
               </div>
               <div>
                 <span className="text-slate-400">Duration:</span>
-                <div className="text-slate-300">{primaryClipProbe ? `${primaryClipProbe.duration}s` : "None"}</div>
+                <div className="text-slate-300">{probe ? `${probe.duration}s` : "None"}</div>
               </div>
               <div>
                 <span className="text-slate-400">Cuts:</span>
                 <div className="text-slate-300">Accepted: {acceptedCuts.length}, Preview: {previewCuts.length}</div>
               </div>
               <div>
-                <span className="text-slate-400">Clips:</span>
-                <div className="text-slate-300">{clips.length} clips loaded</div>
+                <span className="text-slate-400">Media Files:</span>
+                <div className="text-slate-300">{mediaFiles.length} files loaded</div>
               </div>
               <div className="mt-2">
                 <span className="text-slate-400">Recent Logs:</span>
@@ -580,6 +678,13 @@ export default function VideoEditor() {
               <Home className="w-4 h-4 flex-shrink-0" />
             </button>
             <button 
+              onClick={() => setJsonModal(true)}
+              className="flex items-center justify-center w-8 h-8 text-editor-text-secondary hover:text-editor-text-primary hover:bg-editor-bg-tertiary rounded-lg transition-colors border-0 p-0"
+              title="Project Info"
+            >
+              <Info className="w-4 h-4 flex-shrink-0" />
+            </button>
+            <button 
               onClick={() => setShowDeveloperOverlay(true)}
               className="flex items-center justify-center w-8 h-8 text-editor-text-secondary hover:text-editor-text-primary hover:bg-editor-bg-tertiary rounded-lg transition-colors border-0 p-0"
               title="Open Developer Console"
@@ -601,7 +706,7 @@ export default function VideoEditor() {
       {/* Main Content Area - Media Left, Video Center, Tools Right */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Left Panel - Tools & Media */}
-        <div className="w-[36rem] 2xl:w-[40rem] flex h-full min-h-0 gap-0">
+        <div className="block w-[36rem] 2xl:w-[40rem] flex h-full min-h-0 gap-0">
           {/* Left Section - Menu */}
           <div className="w-12 border border-slate-700 bg-slate-700 rounded-l-lg overflow-hidden flex flex-col h-full min-h-0">
             {/* Header */}
@@ -742,13 +847,13 @@ export default function VideoEditor() {
             {/* Dynamic Panel Content */}
             <div className="bg-slate-950 flex-1">
               {activePanel === 'media' && (
-                <ClipGrid
-                  clips={clips}
-                  onAddClips={pickMultipleFiles}
-                  onRemoveClip={handleRemoveClip}
-                  onDragStart={(clip) => {
+                <MediaGrid
+                  mediaFiles={mediaFiles}
+                  onAddMedia={pickMultipleFiles}
+                  onRemoveMedia={removeMediaFile}
+                  onDragStart={(mediaFile) => {
                     // Handle drag start - this will be used for drag and drop to timeline
-                    log(`Started dragging: ${clip.path}`);
+                    log(`Started dragging: ${mediaFile.name}`);
                   }}
                 />
               )}
@@ -804,12 +909,12 @@ export default function VideoEditor() {
                 <div className="lg:hidden border-b border-slate-700 p-4 bg-slate-800">
                   <div className="space-y-2 text-xs">
                     <div>
-                      <span className="text-slate-400">Primary Clip:</span>
-                      <div className="text-slate-300 break-all">{primaryClipPath || "None"}</div>
+                      <span className="text-slate-400">File Path:</span>
+                      <div className="text-slate-300 break-all">{filePath || "None"}</div>
                     </div>
                     <div>
                       <span className="text-slate-400">Duration:</span>
-                      <div className="text-slate-300">{primaryClipProbe ? `${primaryClipProbe.duration}s` : "None"}</div>
+                      <div className="text-slate-300">{probe ? `${probe.duration}s` : "None"}</div>
                     </div>
                     <div>
                       <span className="text-slate-400">Cuts:</span>
@@ -830,7 +935,7 @@ export default function VideoEditor() {
                 <div className="flex-1 flex items-center justify-center w-full h-full">
                   <Player
                     ref={editedRef}
-                    src={primaryClipPreviewUrl || ""}
+                    src={clips.length > 0 ? mediaFiles.find(mf => mf.id === clips[0].mediaFileId)?.previewUrl || previewUrl || "" : previewUrl || ""}
                     label="Preview"
                     cuts={acceptedCuts}
                     large
@@ -842,13 +947,13 @@ export default function VideoEditor() {
         </div>
 
         {/* Right Panel - Tools & Chat */}
-        <div className="hidden lg:flex w-[26rem] xl:w-[30rem] border border-slate-700 bg-slate-800 rounded-lg overflow-hidden flex-col h-full min-h-0">
+        <div className="hidden lg:block w-[26rem] xl:w-[30rem] border border-slate-700 bg-slate-800 rounded-lg overflow-hidden flex flex-col h-full min-h-0">
           <Sidebar
             debug={debug}
-            filePath={primaryClipPath}
-            previewUrl={primaryClipPreviewUrl}
-            probe={primaryClipProbe}
-            peaks={primaryClipPeaks}
+            filePath={filePath}
+            previewUrl={previewUrl}
+            probe={probe}
+            peaks={peaks}
             acceptedCuts={acceptedCuts}
             previewCuts={previewCuts}
             onExecuteCommand={handleExecuteCommand}
@@ -860,28 +965,40 @@ export default function VideoEditor() {
 
       {/* Timeline Section - Always Visible */}
       <div className="flex-shrink-0 border-t border-editor-border-secondary bg-editor-bg-primary">
-        <ErrorBoundary>  
-          <AdvancedTimeline
-            ref={advancedTimelineRef}
-            duration={duration}
-            accepted={acceptedCuts}
-            onSeek={seekVideo}
-            onUpdateTrack={projectManager.updateTrack}
-            onMarkIn={markIn}
-            onClearAllCuts={() => {
-              setAcceptedCuts([]);
-              saveToHistory([]);
-              log('Cleared all cuts');
-            }}
-            onDeleteSegment={handleDeleteSegment}
-            onUndo={undo}
-            onRedo={redo}
-            historyIndex={historyIndex}
-            editHistoryLength={editHistory.length}
-            selectedSegmentId={selectedSegmentId}
-            onSegmentSelect={handleSegmentSelect}
-          />
-        
+        <ErrorBoundary>
+          {useAdvancedTimeline ? (
+            <AdvancedTimeline
+              ref={advancedTimelineRef}
+              peaks={peaks}
+              duration={duration}
+              accepted={acceptedCuts}
+              preview={previewCuts}
+              filePath={filePath}
+              tracks={tracks}
+              clips={clips}
+              mediaFiles={mediaFiles}
+              onSeek={seekVideo}
+              onAddCut={handleAddCut}
+              onRemoveCut={handleRemoveCut}
+              onUpdateTrack={updateTrack}
+              onAddTrack={addTrack}
+              onDropMedia={handleDropMedia}
+              onDeleteClip={deleteClip}
+              onUndo={undo}
+              onRedo={redo}
+              historyIndex={historyIndex}
+              editHistoryLength={editHistory.length}
+            />
+          ) : (
+            <VideoTimeline
+              peaks={peaks}
+              duration={duration}
+              accepted={acceptedCuts}
+              preview={previewCuts}
+              filePath={filePath}
+              onSeek={seekVideo}
+            />
+          )}
         </ErrorBoundary>
       </div>
 
@@ -889,18 +1006,18 @@ export default function VideoEditor() {
       <Footer
         acceptedCuts={acceptedCuts.length}
         previewCuts={previewCuts.length}
-        clips={projectManager.getClips().length}
-        tracks={projectManager?.getTracks().length || 0}
-        projectName={projectManager?.project?.title || "No Project Found"}
-        resolution={primaryClipProbe?.width && primaryClipProbe?.height ? `${primaryClipProbe.width}x${primaryClipProbe.height}` : "No video loaded"}
-        frameRate={primaryClipProbe?.fps ? Math.round(primaryClipProbe.fps) : 0}
+        clips={clips.length}
+        tracks={tracks.length}
+        projectName={filePath ? getFileName(filePath) : "No Project"}
+        resolution={probe?.width && probe?.height ? `${probe.width}x${probe.height}` : "No video loaded"}
+        frameRate={probe?.fps ? Math.round(probe.fps) : 0}
         duration={duration}
-        filePath={primaryClipPath || ""}
-        audioChannels={primaryClipProbe?.audio_channels || 0}
-        audioRate={primaryClipProbe?.audio_rate || 0}
-        videoCodec={primaryClipProbe?.v_codec || ""}
-        audioCodec={primaryClipProbe?.a_codec || ""}
-        container={primaryClipProbe?.container || ""}
+        filePath={filePath || ""}
+        audioChannels={probe?.audio_channels || 0}
+        audioRate={probe?.audio_rate || 0}
+        videoCodec={probe?.v_codec || ""}
+        audioCodec={probe?.a_codec || ""}
+        container={probe?.container || ""}
         zoomLevel={zoomLevel}
         currentTool="Select"
         selectionInfo=""
@@ -922,20 +1039,28 @@ export default function VideoEditor() {
       <ExportDialog
         isOpen={showExportDialog}
         onClose={() => setShowExportDialog(false)}
-        filePath={primaryClipPath}
+        filePath={filePath}
         acceptedCuts={acceptedCuts}
         onExport={handleExportWithOptions}
       />
 
+      <Modal
+        isOpen={jsonModal}
+        onClose={() => setJsonModal(false)}
+      >
+        <DebugProjectFileInfo /> 
+      </Modal>
+
       {/* Developer Overlay */}
       <DeveloperOverlay
         debug={debug}
-        filePath={primaryClipPath}
-        previewUrl={primaryClipPreviewUrl}
-        probe={primaryClipProbe}
-        peaks={primaryClipPeaks}
+        filePath={filePath}
+        previewUrl={previewUrl}
+        probe={probe}
+        peaks={peaks}
         acceptedCuts={acceptedCuts}
         previewCuts={previewCuts}
+        projectFile={projectFile}
         isOpen={showDeveloperOverlay}
         onClose={() => setShowDeveloperOverlay(false)}
       />
