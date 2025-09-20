@@ -15,6 +15,7 @@ import { useWaveformLogic } from "./hooks/useWaveformLogic";
 import { useCommandLogic } from "./hooks/useCommandLogic";
 import { MediaGrid } from "./components/MediaGrid";
 import { SongLibrary } from "./components/SongLibrary";
+import { DragIndicator } from "./components/DragIndicator";
 import { 
   Home, 
   Info, 
@@ -27,7 +28,7 @@ import { DeveloperOverlay } from "./components/DeveloperOverlay";
 import Modal from "../../components/Modal";
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
-import { useProjectFile } from './hooks/useProjectFileManager';
+import { useProjectFileStore } from '../../stores/projectFileStore';
 
 // Panel Components
 const TransitionsPanel = () => (
@@ -135,10 +136,14 @@ export default function VideoEditor() {
   
   // Developer overlay
   const [showDeveloperOverlay, setShowDeveloperOverlay] = useState(false);
+
+  // Global drag indicator state
+  const [dragIndicatorVisible, setDragIndicatorVisible] = useState(false);
+  const [dragIndicatorPos, setDragIndicatorPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [dragIndicatorType, setDragIndicatorType] = useState<"video" | "audio">("video");
   
-  // Project manager (from merged PR)
-  const projectManager = useProjectFile();
-  const projectFile = projectManager.getSerializedProject();
+  // Project file store
+  const projectFile = useProjectFileStore(state => state.projectFile);
 
   // Players control
   const editedRef = useRef<PlayerHandle>(null);
@@ -300,37 +305,55 @@ export default function VideoEditor() {
   };
 
   // Handle dropping media files onto timeline tracks
-  const handleDropMedia = (mediaFile: any, trackId: string, offset: number, event?: React.DragEvent) => {
-    console.log("handleDropMedia called with:", { mediaFile, trackId, offset });
+  const handleDropMedia = (mediaFile: any, trackId: string, offset: number, event?: React.DragEvent, retryCount = 0) => {
+    console.log("=== handleDropMedia DEBUG ===");
+    console.log("handleDropMedia called with:", { mediaFile, trackId, offset, retryCount });
     console.log("MediaFile object:", mediaFile);
     console.log("Current clips before drop:", clips.length);
+    console.log("All clips before drop:", clips.map(c => ({ id: c.id, trackId: c.trackId, offset: c.offset, endTime: c.endTime, startTime: c.startTime })));
+    console.log("Current tracks:", tracks.map(t => ({ id: t.id, name: t.name, type: t.type, order: t.order })));
+    
+    // Find the target track to check its type
+    const targetTrack = tracks.find(track => track.id === trackId);
+    if (!targetTrack) {
+      console.error("❌ Target track not found:", trackId);
+      console.log("❌ Available tracks:", tracks.map(t => ({ id: t.id, name: t.name, type: t.type, order: t.order })));
+      console.log("❌ Looking for trackId:", trackId);
+      console.log("❌ Retry count:", retryCount);
+      
+      // If this is a retry and we still can't find the track, give up
+      if (retryCount >= 3) {
+        log(`Error: Target track ${trackId} not found after ${retryCount} retries`);
+        console.error("❌ GIVING UP: Track not found after 3 retries");
+        return;
+      }
+      
+      // Retry after a short delay (track might still be being added to state)
+      console.log(`🔄 Retrying drop in 100ms (attempt ${retryCount + 1})`);
+      setTimeout(() => {
+        handleDropMedia(mediaFile, trackId, offset, event, retryCount + 1);
+      }, 100); // Increased delay for better reliability
+      return;
+    }
+    
+    // Validate that media type matches track type
+    if (mediaFile.type !== targetTrack.type) {
+      console.warn(`❌ Cannot drop ${mediaFile.type} file onto ${targetTrack.type} track`);
+      log(`Cannot drop ${mediaFile.type} file "${mediaFile.name}" onto ${targetTrack.type} track "${targetTrack.name}"`);
+      return;
+    }
+    
+    console.log("✅ Track validation passed:", { mediaType: mediaFile.type, trackType: targetTrack.type });
+    
     log(`Dropped ${mediaFile.name} onto track ${trackId} at ${offset.toFixed(2)}s`);
     
     // Create a clip from the media file
     // Use full video duration
     const clipDuration = mediaFile.duration;
     
-    // Check if user wants manual placement (hold Shift key)
-    const isManualPlacement = event?.shiftKey || false;
-    
-    let finalOffset = offset;
-    
-    if (!isManualPlacement) {
-      // Auto-placement: Find the next available position (end of last clip on this track)
-      const existingClipsOnTrack = clips.filter(clip => clip.trackId === trackId);
-      let nextAvailableOffset = 0;
-      
-      if (existingClipsOnTrack.length > 0) {
-        // Find the latest end time of clips on this track
-        const latestEndTime = Math.max(...existingClipsOnTrack.map(clip => clip.offset + (clip.endTime - clip.startTime)));
-        nextAvailableOffset = latestEndTime;
-      }
-      
-      finalOffset = nextAvailableOffset;
-      log(`Auto-placing clip at ${finalOffset.toFixed(2)}s (next available position)`);
-    } else {
-      log(`Manual placement at ${finalOffset.toFixed(2)}s (Shift key held)`);
-    }
+    // Always use the exact position where the user dropped the clip
+    const finalOffset = offset;
+    log(`Placing clip at exact position: ${finalOffset.toFixed(2)}s`);
     
     const clip: Clip = {
       id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -342,13 +365,26 @@ export default function VideoEditor() {
       offset: finalOffset
     };
     
-    console.log("Created clip:", clip);
+    console.log("🎬 CREATING CLIP:", clip);
+    console.log("🎬 Target track details:", targetTrack);
+    console.log("🎬 All available tracks before clip creation:", tracks.map(t => ({ id: t.id, name: t.name, type: t.type, order: t.order })));
     
     // Add clip to state
     setClips(prevClips => {
       const newClips = [...prevClips, clip];
-      console.log("Updated clips array:", newClips);
-      console.log("New clip created:", clip);
+      console.log("🎬 ✅ CLIP ADDED TO STATE!");
+      console.log("🎬 ✅ Updated clips array:", newClips.map(c => ({ id: c.id, name: c.name, trackId: c.trackId, offset: c.offset, startTime: c.startTime, endTime: c.endTime })));
+      console.log("🎬 ✅ New clip details:", {
+        id: clip.id,
+        name: clip.name,
+        trackId: clip.trackId,
+        offset: clip.offset,
+        startTime: clip.startTime,
+        endTime: clip.endTime,
+        mediaFileId: clip.mediaFileId
+      });
+      console.log("🎬 ✅ Target track exists in current tracks:", tracks.find(t => t.id === clip.trackId) ? "YES" : "NO");
+      console.log("🎬 ✅ Target track details:", tracks.find(t => t.id === clip.trackId));
       log(`Created clip: ${clip.name} (${clip.startTime.toFixed(2)}s - ${clip.endTime.toFixed(2)}s) at offset ${clip.offset.toFixed(2)}s`);
       log(`Total clips now: ${newClips.length}`);
       return newClips;
@@ -358,7 +394,7 @@ export default function VideoEditor() {
     // Each clip will show its own waveform and thumbnail
   };
 
-  const addTrack = (type: Track['type']) => {
+  const addTrack = (type: Track['type'], onTrackCreated?: (trackId: string) => void) => {
     const newTrack: Track = {
       id: `${type}-${Date.now()}`,
       name: `${type.charAt(0).toUpperCase() + type.slice(1)} Track ${tracks.filter(t => t.type === type).length + 1}`,
@@ -370,6 +406,10 @@ export default function VideoEditor() {
     };
 
     setTracks(prevTracks => {
+      console.log("🎵 === TRACK CREATION DEBUG ===");
+      console.log("🎵 Creating track of type:", type);
+      console.log("🎵 Previous tracks:", prevTracks.map(t => ({ id: t.id, name: t.name, type: t.type, order: t.order })));
+      
       const videoTracks = prevTracks.filter(t => t.type === 'video');
       const audioTracks = prevTracks.filter(t => t.type === 'audio');
       
@@ -377,18 +417,37 @@ export default function VideoEditor() {
         // Add video tracks above existing video tracks (negative order values)
         const newOrder = videoTracks.length > 0 ? Math.min(...videoTracks.map(t => t.order)) - 1 : -1;
         newTrack.order = newOrder;
+        console.log("🎵 Video track order:", newOrder);
         
-        return [...prevTracks, newTrack];
+        const newTracks = [...prevTracks, newTrack];
+        console.log("🎵 New tracks array:", newTracks.map(t => ({ id: t.id, name: t.name, type: t.type, order: t.order })));
+        return newTracks;
       } else {
         // Add audio tracks below existing audio tracks (positive order values)
         const newOrder = audioTracks.length > 0 ? Math.max(...audioTracks.map(t => t.order)) + 1 : 2;
         newTrack.order = newOrder;
+        console.log("🎵 Audio track order:", newOrder);
         
-        return [...prevTracks, newTrack];
+        const newTracks = [...prevTracks, newTrack];
+        console.log("🎵 New tracks array:", newTracks.map(t => ({ id: t.id, name: t.name, type: t.type, order: t.order })));
+        return newTracks;
       }
     });
     
     log(`Added new ${type} track: ${newTrack.name}`);
+    console.log("🎵 CREATING NEW TRACK:", newTrack);
+    console.log("🎵 All tracks after creation:", [...tracks, newTrack].map(t => ({ id: t.id, name: t.name, type: t.type, order: t.order })));
+    
+    // Call the callback with the new track ID after a brief delay to ensure state is updated
+    if (onTrackCreated) {
+      console.log("🎵 Calling onTrackCreated callback with trackId:", newTrack.id);
+      setTimeout(() => {
+        console.log("🎵 Executing onTrackCreated callback now");
+        onTrackCreated(newTrack.id);
+      }, 50); // Increased delay to ensure state is fully updated
+    }
+    
+    return newTrack.id;
   };
 
   // Temporarily disabled: Function to automatically delete empty tracks
@@ -612,6 +671,60 @@ export default function VideoEditor() {
   //   deleteEmptyTracks();
   // }, [deleteEmptyTracks]);
 
+  // Listen for custom drag events to show a Windows-like drag indicator
+  useEffect(() => {
+    const onCustomDragStart = (e: Event) => {
+      console.log("VideoEditor: Custom drag start received", e);
+      const ce = e as CustomEvent<any>;
+      const mediaType = ce.detail?.mediaFile?.type === 'audio' ? 'audio' : 'video';
+      setDragIndicatorType(mediaType);
+      console.log("VideoEditor: Set drag indicator type to", mediaType);
+      
+      // Set initial position from drag start event
+      const x = Number(ce.detail?.clientX);
+      const y = Number(ce.detail?.clientY);
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        setDragIndicatorPos({ x, y });
+        console.log("VideoEditor: Set initial drag position", { x, y });
+      }
+      
+      // Show the indicator immediately when drag starts
+      setDragIndicatorVisible(true);
+      console.log("VideoEditor: Made drag indicator visible on drag start");
+    };
+    
+    const onCustomDragMove = (e: Event) => {
+      console.log("VideoEditor: Custom drag move received", e);
+      const ce = e as CustomEvent<any>;
+      const x = Number(ce.detail?.clientX);
+      const y = Number(ce.detail?.clientY);
+      console.log("VideoEditor: Drag move position", { x, y });
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        setDragIndicatorPos({ x, y });
+      }
+      // Ensure indicator stays visible during drag
+      if (!dragIndicatorVisible) {
+        console.log("VideoEditor: Making drag indicator visible on move");
+        setDragIndicatorVisible(true);
+      }
+    };
+    
+    const onCustomDragEnd = () => {
+      console.log("VideoEditor: Custom drag end received");
+      setDragIndicatorVisible(false);
+    };
+
+    document.addEventListener('customDragStart', onCustomDragStart);
+    document.addEventListener('customDragMove', onCustomDragMove);
+    document.addEventListener('customDragEnd', onCustomDragEnd);
+
+    return () => {
+      document.removeEventListener('customDragStart', onCustomDragStart);
+      document.removeEventListener('customDragMove', onCustomDragMove);
+      document.removeEventListener('customDragEnd', onCustomDragEnd);
+    };
+  }, [dragIndicatorVisible]);
+
   const duration = probe?.duration || 0;
 
   const getFileName = (path: string) => {
@@ -700,6 +813,7 @@ export default function VideoEditor() {
           <Toolbar
             onExport={onExport}
             acceptedCuts={acceptedCuts}
+            onAddTrack={addTrack}
           />
         </div>
       </div>
@@ -852,10 +966,6 @@ export default function VideoEditor() {
                   mediaFiles={mediaFiles}
                   onAddMedia={pickMultipleFiles}
                   onRemoveMedia={removeMediaFile}
-                  onDragStart={(mediaFile) => {
-                    // Handle drag start - this will be used for drag and drop to timeline
-                    log(`Started dragging: ${mediaFile.name}`);
-                  }}
                 />
               )}
               {activePanel === 'transitions' && <TransitionsPanel />}
@@ -1064,6 +1174,13 @@ export default function VideoEditor() {
         projectFile={projectFile}
         isOpen={showDeveloperOverlay}
         onClose={() => setShowDeveloperOverlay(false)}
+      />
+      
+      <DragIndicator 
+        visible={dragIndicatorVisible}
+        x={dragIndicatorPos.x}
+        y={dragIndicatorPos.y}
+        mediaType={dragIndicatorType}
       />
     </div>
   );

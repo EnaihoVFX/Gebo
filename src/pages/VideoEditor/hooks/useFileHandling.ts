@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { audioPeaks, makePreviewProxy, probeVideo, readFileAsBase64, copyToAppData, readFileChunk, getFileSize, generateThumbnails, type Probe } from "../../../lib/ffmpeg";
+import { audioPeaks, makePreviewProxy, probeVideo, readFileChunk, getFileSize, generateThumbnails, type Probe } from "../../../lib/ffmpeg";
 import type { MediaFile } from "../../../types";
 
 export function useFileHandling() {
@@ -400,6 +400,19 @@ export function useFileHandling() {
     }
   };
 
+  // Function to add an already-constructed MediaFile (e.g., downloaded audio)
+  const addExistingMediaFile = (mediaFile: MediaFile) => {
+    setMediaFiles(prev => {
+      // Avoid duplicates by id or path
+      if (prev.some(f => f.id === mediaFile.id || f.path === mediaFile.path)) {
+        return prev;
+      }
+      return [...prev, mediaFile];
+    });
+    log(`✅ Added existing media file: ${mediaFile.name}`);
+    return mediaFile;
+  };
+
   // Function to remove a media file
   const removeMediaFile = (mediaId: string) => {
     setMediaFiles(prev => {
@@ -433,6 +446,7 @@ export function useFileHandling() {
     mediaFiles,
     pickMultipleFiles,
     addMediaFile,
+    addExistingMediaFile,
     removeMediaFile,
   };
 }

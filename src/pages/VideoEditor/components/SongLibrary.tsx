@@ -166,10 +166,41 @@ export function SongLibrary({ onAddSong, onDragStart }: SongLibraryProps) {
     try {
       event.dataTransfer.setData("application/json", JSON.stringify(dragData));
       event.dataTransfer.effectAllowed = "copy";
+      
+      // Broadcast custom drag start for global indicator
+      const customEvent = new CustomEvent('customDragStart', { detail: dragData });
+      document.dispatchEvent(customEvent);
     } catch (error) {
       console.error("Error setting drag data:", error);
     }
+
+    // Defer custom start; indicator will show on first dragover/move
   }, [downloadedSongs, onDragStart]);
+
+  // While native drag is active, forward cursor moves for overlay positioning
+  useEffect(() => {
+    const onDragOver = (e: DragEvent) => {
+      const types = Array.from(e.dataTransfer?.types || []);
+      if (types.includes('application/json')) {
+        let detail: any = null;
+        try {
+          detail = JSON.parse(e.dataTransfer!.getData('application/json'));
+        } catch {}
+        const evt = new CustomEvent('customDragMove', { detail: { ...detail, clientX: e.clientX, clientY: e.clientY } });
+        document.dispatchEvent(evt);
+      }
+    };
+    const onDragEnd = () => {
+      const evt = new CustomEvent('customDragEnd');
+      document.dispatchEvent(evt);
+    };
+    document.addEventListener('dragover', onDragOver, true);
+    document.addEventListener('dragend', onDragEnd, true);
+    return () => {
+      document.removeEventListener('dragover', onDragOver, true);
+      document.removeEventListener('dragend', onDragEnd, true);
+    };
+  }, []);
 
   return (
     <div className="h-full flex flex-col">

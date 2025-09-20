@@ -10,7 +10,7 @@ interface TrackControlsProps {
 
 export function TrackControls({ track, onUpdateTrack, height, index }: TrackControlsProps) {
   // Alternating track colors for better visual differentiation
-  const isEvenTrack = index % 2 === 0;
+  const isEvenTrack = track.order % 2 === 0;
   const trackBgColor = isEvenTrack ? 'bg-slate-800' : 'bg-slate-750';
   const trackHoverColor = isEvenTrack ? 'hover:bg-slate-750' : 'hover:bg-slate-700';
 
