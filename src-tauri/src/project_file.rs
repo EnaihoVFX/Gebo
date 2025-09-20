@@ -344,6 +344,13 @@ pub fn has_project() -> bool {
 }
 
 
+/// Single read of a project file without affecting global state
+pub fn single_read_project(path: String) -> Result<ProjectFile> {
+    let path_buf = PathBuf::from(&path);
+    let project = ProjectFile::from_path(&path_buf)?;
+    Ok(project)
+}
+
 // NOTES
 // Simplified ProjectState pattern for handling project files
 // ProjectState contains all functionality directly without unnecessary wrapper classes

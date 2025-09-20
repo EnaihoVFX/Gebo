@@ -3,7 +3,7 @@
 mod ffmpeg;
 mod waveform;
 mod project_file;
-
+mod longterm_storage;
 
 #[tauri::command]
 fn probe_video(path: String) -> Result<ffmpeg::Probe, String> {
@@ -193,6 +193,22 @@ fn get_project() -> Result<Option<project_file::ProjectFile>, String> {
   project_file::get_project()
 }
 
+#[tauri::command]
+fn single_read_project(path: String) -> Result<project_file::ProjectFile, String> {
+  project_file::single_read_project(path).map_err(|e| e.to_string())
+}
+
+// Longterm storage
+
+#[tauri::command]
+fn add_recent_project(path: String) -> Result<(), String> {
+  longterm_storage::add_recent_project(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_recent_projects() -> Result<Vec<String>, String> {
+  longterm_storage::get_recent_projects().map_err(|e| e.to_string())
+}
 
 fn main() {
   tauri::Builder::default()
@@ -219,7 +235,11 @@ fn main() {
       load_project,
       save_project,
       update_project,
-      get_project
+      get_project,
+      single_read_project,
+      // Longterm storage commands
+      add_recent_project,
+      get_recent_projects
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

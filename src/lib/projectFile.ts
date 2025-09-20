@@ -56,3 +56,7 @@ export async function getProject(): Promise<ProjectFile | null> {
 export async function newProject(project: ProjectFile): Promise<ProjectFile> {
     return await invoke("new_project", { projectFile: project }) as ProjectFile;
 }
+
+export async function singleReadProject(path: string): Promise<ProjectFile> {
+    return await invoke("single_read_project", { path }) as ProjectFile;
+}
