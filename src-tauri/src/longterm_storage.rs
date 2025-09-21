@@ -2,7 +2,6 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Serialize, Deserialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 extern crate dirs;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

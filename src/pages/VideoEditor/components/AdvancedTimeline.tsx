@@ -28,6 +28,8 @@ interface AdvancedTimelineProps {
   onDropMedia?: (mediaFile: any, trackId: string, offset: number, event?: React.DragEvent) => void;
   // Clip management props
   onDeleteClip?: (clipId: string) => void;
+  onSplitClip?: (clipId: string, splitTime: number) => void;
+  onResizeClip?: (clipId: string, newStartTime: number, newEndTime: number) => void;
   // Undo/Redo props
   onUndo?: () => void;
   onRedo?: () => void;
@@ -44,7 +46,7 @@ export interface AdvancedTimelineHandle {
 }
 
 export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimelineProps>(({
-  peaks, duration, accepted, preview, filePath, tracks, clips, mediaFiles, width, height, onSeek, onAddCut, onRemoveCut, onUpdateTrack, onMarkIn, onClearAllCuts, onDropMedia, onDeleteClip, onUndo, onRedo, historyIndex, editHistoryLength,
+  peaks, duration, accepted, preview, filePath, tracks, clips, mediaFiles, width, height, onSeek, onAddCut, onRemoveCut, onUpdateTrack, onMarkIn, onClearAllCuts, onDropMedia, onDeleteClip, onSplitClip, onResizeClip, onUndo, onRedo, historyIndex, editHistoryLength,
 }, ref) => {
   // Sort tracks by order to ensure proper positioning
   const sortedTracks = [...tracks].sort((a, b) => a.order - b.order);
@@ -82,6 +84,24 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
   const zoomTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const zoomAnimationRef = useRef<number | null>(null);
   const thumbnailCache = useRef<Map<string, HTMLImageElement>>(new Map());
+  
+  // Tool selection state
+  const [currentTool, setCurrentTool] = useState<'select' | 'split' | 'resize'>('select');
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeStartX, setResizeStartX] = useState<number | null>(null);
+  const [resizeClipId, setResizeClipId] = useState<string | null>(null);
+  const [resizeHandle, setResizeHandle] = useState<'left' | 'right' | null>(null);
+  
+  // Drag preview state
+  const [dragPreview, setDragPreview] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    mediaType: 'video' | 'audio' | 'image';
+    trackId: string;
+  } | null>(null);
 
   // Calculate responsive dimensions
   const timelineWidth = width || containerSize.width || 800;
@@ -133,8 +153,16 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     setPan(0);
     setCurrentTime(0);
     
-    // Clear thumbnail cache when file changes
-    thumbnailCache.current.clear();
+    // Only clear thumbnail cache when file path actually changes
+    // Preserve thumbnails for existing clips that might still be valid
+    const currentFileThumbnails = Array.from(thumbnailCache.current.keys()).filter(key => 
+      key.includes(filePath)
+    );
+    
+    // Only clear if this is a completely new file
+    if (currentFileThumbnails.length === 0) {
+      thumbnailCache.current.clear();
+    }
     
     setIsGeneratingThumbnails(true);
     // More reasonable thumbnail count based on duration
@@ -255,6 +283,35 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
   }, [duration, clips]);
 
 
+  // Helper function to find resize handle at coordinates
+  const findResizeHandle = useCallback((x: number, y: number, clip: Clip): 'left' | 'right' | null => {
+    const effectiveDuration = getEffectiveDuration();
+    const clipStartX = (clip.offset / effectiveDuration) * (timelineWidth * zoom) - pan;
+    const clipEndX = ((clip.offset + (clip.endTime - clip.startTime)) / effectiveDuration) * (timelineWidth * zoom) - pan;
+    
+    // Check if we're in the right track
+    const track = tracks.find(t => t.id === clip.trackId);
+    if (!track) return null;
+    
+    const trackY = getTrackYPosition(track.order);
+    const clipTop = trackY;
+    const clipBottom = trackY + trackHeight;
+    
+    if (y < clipTop || y > clipBottom) return null;
+    
+    // Check left handle (within 8 pixels of left edge)
+    if (Math.abs(x - clipStartX) <= 8) {
+      return 'left';
+    }
+    
+    // Check right handle (within 8 pixels of right edge)
+    if (Math.abs(x - clipEndX) <= 8) {
+      return 'right';
+    }
+    
+    return null;
+  }, [getEffectiveDuration, timelineWidth, zoom, pan, tracks, getTrackYPosition, trackHeight]);
+
   // Helper function to find clip at coordinates with tolerance
   const findClipAtPosition = useCallback((x: number, y: number, tolerance: number = 5) => {
     const effectiveDuration = getEffectiveDuration();
@@ -291,6 +348,42 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     
     return null;
   }, [clips, tracks, trackHeight, getEffectiveDuration, timelineWidth, zoom, pan, timeRulerHeight]);
+
+  // Clean up unused thumbnails from cache
+  const cleanupThumbnailCache = useCallback(() => {
+    const currentMediaFileIds = new Set(mediaFiles.map(mf => mf.id));
+    const keysToDelete: string[] = [];
+    
+    for (const [key] of thumbnailCache.current.entries()) {
+      // Extract media file ID from cache key
+      const mediaFileIdMatch = key.match(/media_([^_]+)_/);
+      if (mediaFileIdMatch) {
+        const mediaFileId = mediaFileIdMatch[1];
+        if (!currentMediaFileIds.has(mediaFileId)) {
+          keysToDelete.push(key);
+        }
+      }
+    }
+    
+    // Remove unused thumbnails
+    keysToDelete.forEach(key => {
+      thumbnailCache.current.delete(key);
+    });
+    
+    if (keysToDelete.length > 0) {
+      console.log(`Cleaned up ${keysToDelete.length} unused thumbnails from cache`);
+    }
+  }, [mediaFiles]);
+
+  // Clean up thumbnail cache when clips or media files change
+  useEffect(() => {
+    // Debounce cache cleanup to avoid excessive cleanup during rapid changes
+    const timeoutId = setTimeout(() => {
+      cleanupThumbnailCache();
+    }, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }, [clips, mediaFiles, cleanupThumbnailCache]);
 
   // Get cached thumbnail or create new one
   const getCachedThumbnail = useCallback((base64Data: string, index: number): Promise<HTMLImageElement> => {
@@ -1128,9 +1221,10 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     }
 
     // Draw track backgrounds with alternating colors for visual differentiation
-    sortedTracks.forEach((track, trackIndex) => {
+    sortedTracks.forEach((track) => {
       const trackTopY = getTrackYPosition(track.order);
-      const isEvenTrack = trackIndex % 2 === 0;
+      // Use track order instead of array index to maintain consistent colors when tracks are added/removed
+      const isEvenTrack = Math.abs(track.order) % 2 === 0;
       
       // Only draw tracks that are visible in the viewport
       if (trackTopY + trackHeight > timeRulerHeight && trackTopY < timelineHeight) {
@@ -1218,6 +1312,26 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         drawRoundedRect(ctx, clipStartX, trackTopY, clipWidth, trackHeight, clipRadius);
         ctx.stroke();
 
+        // Draw resize handles if resize tool is active and clip is selected
+        if (currentTool === 'resize' && isSelected) {
+          const handleSize = 8;
+          const handleY = trackTopY + (trackHeight - handleSize) / 2;
+          
+          // Left resize handle
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(clipStartX - handleSize/2, handleY, handleSize, handleSize);
+          ctx.strokeStyle = "#000000";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(clipStartX - handleSize/2, handleY, handleSize, handleSize);
+          
+          // Right resize handle
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(clipEndX - handleSize/2, handleY, handleSize, handleSize);
+          ctx.strokeStyle = "#000000";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(clipEndX - handleSize/2, handleY, handleSize, handleSize);
+        }
+
         // Draw waveform for this clip (top half only, starting from bottom)
         if (mediaFile.peaks && mediaFile.peaks.length > 0) {
           console.log(`Drawing waveform for clip ${index}: ${mediaFile.peaks.length} peaks, clipWidth: ${clipWidth}`);
@@ -1284,9 +1398,9 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         if (mediaFile.type === 'video' && clipWidth > 100) {
           const thumbnailHeight = Math.min(trackHeight * 0.9, 40); // Back to original size for compact tracks
           
-          // Calculate which thumbnails to show based on clip position and duration
+          // Calculate which thumbnails to show based on clip content position and duration
           const clipDuration = clip.endTime - clip.startTime;
-          const clipStartTime = clip.offset;
+          const clipContentStartTime = clip.startTime; // Use content start time, not timeline offset
           
           // Calculate which thumbnails correspond to this time segment
           const totalDuration = mediaFile.duration;
@@ -1300,6 +1414,9 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           const segmentThumbnailWidth = (clipWidth - 8) / thumbnailCount;
           
           console.log(`Drawing ${thumbnailCount} thumbnails for clip ${index} (${clipDuration.toFixed(2)}s segment), width: ${segmentThumbnailWidth.toFixed(1)}px each`);
+          console.log(`Clip content time range: ${clipContentStartTime.toFixed(2)}s to ${clip.endTime.toFixed(2)}s`);
+          console.log(`Clip timeline offset: ${clip.offset.toFixed(2)}s`);
+          console.log(`Media file duration: ${totalDuration.toFixed(2)}s, available thumbnails: ${availableThumbnails}`);
           
           // Draw filmstrip thumbnails across the clip
           for (let i = 0; i < thumbnailCount; i++) {
@@ -1308,23 +1425,26 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
             
             // Try to use actual thumbnails if available
             if (mediaFile.thumbnails && mediaFile.thumbnails.length > 0) {
-              // Calculate which thumbnail corresponds to this position in the time segment
+              // Calculate which thumbnail corresponds to this position in the content segment
               const segmentProgress = thumbnailCount > 1 ? i / (thumbnailCount - 1) : 0; // 0 to 1 across the segment
-              const segmentTime = clipStartTime + (segmentProgress * clipDuration);
+              const contentTime = clipContentStartTime + (segmentProgress * clipDuration);
               
-              // Map segment time to thumbnail index
-              const thumbnailIndex = Math.floor((segmentTime / totalDuration) * mediaFile.thumbnails.length);
+              // Map content time to thumbnail index
+              const thumbnailIndex = Math.floor((contentTime / totalDuration) * mediaFile.thumbnails.length);
               const clampedIndex = Math.max(0, Math.min(mediaFile.thumbnails.length - 1, thumbnailIndex));
               const thumbnailUrl = mediaFile.thumbnails[clampedIndex];
               
-              console.log(`Thumbnail ${i}: segmentTime=${segmentTime.toFixed(2)}s, index=${clampedIndex}/${mediaFile.thumbnails.length}`);
+              console.log(`Thumbnail ${i}: contentTime=${contentTime.toFixed(2)}s, index=${clampedIndex}/${mediaFile.thumbnails.length}`);
               
               // Use cached thumbnail or create new one
-              const cacheKey = `clip_${clip.id}_thumb_${i}_${thumbnailUrl}`;
+              // Create a more stable cache key that preserves thumbnails across splits
+              const mediaFileId = clip.mediaFileId;
+              const cacheKey = `media_${mediaFileId}_thumb_${clampedIndex}_${thumbnailUrl}`;
               let img = thumbnailCache.current.get(cacheKey);
               
               if (img && img.complete && img.naturalWidth > 0) {
                 // Draw cached thumbnail immediately
+                console.log(`Using cached thumbnail for clip ${index}, thumbnail ${i}`);
                 ctx.drawImage(img, thumbX, thumbY, segmentThumbnailWidth, thumbnailHeight);
               } else if (!img) {
                 // Create new image only if not cached
@@ -1332,6 +1452,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
                 img.onload = () => {
                   // Cache the loaded image
                   thumbnailCache.current.set(cacheKey, img!);
+                  console.log(`Cached new thumbnail for clip ${index}, thumbnail ${i}, cache key: ${cacheKey}`);
                   // Redraw the timeline to show the loaded thumbnail
                   if (canvasRef.current) {
                     drawTimeline();
@@ -1351,7 +1472,8 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
               }
             } else if (mediaFile.thumbnailUrl) {
               // Fallback: use the single thumbnail and duplicate it
-              const fallbackCacheKey = `clip_${clip.id}_fallback_thumb_${i}_${mediaFile.thumbnailUrl}`;
+              const mediaFileId = clip.mediaFileId;
+              const fallbackCacheKey = `media_${mediaFileId}_fallback_thumb_${i}_${mediaFile.thumbnailUrl}`;
               let fallbackImg = thumbnailCache.current.get(fallbackCacheKey);
               
               if (fallbackImg && fallbackImg.complete && fallbackImg.naturalWidth > 0) {
@@ -1473,11 +1595,46 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       }
     }
 
+    // Draw drag preview if visible
+    if (dragPreview && dragPreview.visible) {
+      const { x, y, width, height, mediaType } = dragPreview;
+      
+      // Draw blue opaque block with rounded corners
+      ctx.fillStyle = "rgba(59, 130, 246, 0.4)"; // Blue with opacity
+      drawRoundedRect(ctx, x, y, width, height, 8); // 8px rounded corners
+      ctx.fill();
+      
+      // Draw border
+      ctx.strokeStyle = "#3b82f6"; // Blue border
+      ctx.lineWidth = 2;
+      drawRoundedRect(ctx, x, y, width, height, 8);
+      ctx.stroke();
+      
+      // Draw media icon in center
+      ctx.fillStyle = "#ffffff"; // White icon
+      ctx.font = "20px Arial, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      
+      let iconText = "🎬"; // Default video icon
+      if (mediaType === 'audio') {
+        iconText = "🎵"; // Audio icon
+      } else if (mediaType === 'image') {
+        iconText = "🖼️"; // Image icon
+      }
+      
+      ctx.fillText(iconText, x + width / 2, y + height / 2);
+      
+      // Reset text alignment
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+    }
+
     // Border
     ctx.strokeStyle = "#27272a"; // editor-border-accent
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, timelineWidth, timelineHeight);
-   }, [samples, accepted, preview, duration, timelineWidth, timelineHeight, thumbnails, currentTime, zoom, pan, formatTime, thumbnailDimensions, isScrubbing, isHoveringRuler, clips, tracks, trackHeight, timeRulerHeight]);
+   }, [samples, accepted, preview, duration, timelineWidth, timelineHeight, thumbnails, currentTime, zoom, pan, formatTime, thumbnailDimensions, isScrubbing, isHoveringRuler, clips, tracks, trackHeight, timeRulerHeight, dragPreview]);
 
   useEffect(() => {
     // Debounced drawing for Tauri performance
@@ -1665,8 +1822,61 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         if (isOverTimeline) {
           console.log("Mouse over timeline during custom drag");
           setIsCustomDragging(true);
+          
+          // Update drag preview for custom drag
+          if (customDragData && customDragData.type === "media-file" && customDragData.mediaFile) {
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // Find the closest track to the drop position
+            let targetTrack: Track | null = null;
+            let minDistance = Infinity;
+            
+            sortedTracks.forEach((track: Track) => {
+              const trackY = getTrackYPosition(track.order);
+              const distance = Math.abs(y - (trackY + trackHeight / 2));
+              if (distance < minDistance) {
+                minDistance = distance;
+                targetTrack = track;
+              }
+            });
+            
+            if (targetTrack) {
+              // Calculate preview dimensions
+              const effectiveDuration = getEffectiveDuration();
+              const mediaFile = customDragData.mediaFile;
+              const clipDuration = mediaFile.duration || 10; // Default 10 seconds if no duration
+              
+              // Calculate preview width based on clip duration
+              const previewWidth = Math.max(80, (clipDuration / effectiveDuration) * (timelineWidth * zoom));
+              
+              // Calculate preview position (center on mouse x, align to track)
+              const track = targetTrack as Track;
+              const trackY = getTrackYPosition(track.order);
+              const previewX = Math.max(0, Math.min(timelineWidth - previewWidth, x - previewWidth / 2));
+              
+              // Determine media type
+              let mediaType: 'video' | 'audio' | 'image' = 'video';
+              if (mediaFile.type === 'Audio') {
+                mediaType = 'audio';
+              } else if (mediaFile.type === 'Image') {
+                mediaType = 'image';
+              }
+              
+              setDragPreview({
+                visible: true,
+                x: previewX,
+                y: trackY,
+                width: previewWidth,
+                height: trackHeight,
+                mediaType,
+                trackId: track.id
+              });
+            }
+          }
         } else {
           setIsCustomDragging(false);
+          setDragPreview(null); // Hide drag preview when leaving timeline
         }
       }
     };
@@ -1728,6 +1938,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         
         setIsCustomDragging(false);
         setCustomDragData(null);
+        setDragPreview(null); // Hide drag preview when custom drag ends
       }
     };
 
@@ -1762,10 +1973,34 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     const clickedClip = findClipAtPosition(x, y, 5);
     
     if (clickedClip) {
-      // Clicked on a clip - select it
-      flushSync(() => {
-        setSelectedClipId(clickedClip.id);
-      });
+      if (currentTool === 'split') {
+        // Split tool - split the clip at the click position
+        onSplitClip?.(clickedClip.id, t);
+        flushSync(() => {
+          setSelectedClipId(null);
+        });
+      } else if (currentTool === 'resize') {
+        // Resize tool - check for resize handles
+        const handle = findResizeHandle(x, y, clickedClip);
+        if (handle) {
+          // Start resize operation
+          setIsResizing(true);
+          setResizeClipId(clickedClip.id);
+          setResizeStartX(x);
+          setResizeHandle(handle);
+          setSelectedClipId(clickedClip.id);
+        } else {
+          // Select the clip if not on a resize handle
+          flushSync(() => {
+            setSelectedClipId(clickedClip.id);
+          });
+        }
+      } else {
+        // Default behavior - select the clip
+        flushSync(() => {
+          setSelectedClipId(clickedClip.id);
+        });
+      }
       // Force immediate redraw
       setForceRedraw(prev => prev + 1);
       // Also call drawTimeline directly for immediate visual feedback
@@ -1798,6 +2033,27 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    
+    // Handle resize operations
+    if (isResizing && resizeClipId && resizeStartX !== null && resizeHandle) {
+      const effectiveDuration = getEffectiveDuration();
+      const newTime = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
+      const clip = clips.find(c => c.id === resizeClipId);
+      
+      if (clip) {
+        const clipStart = clip.offset;
+        const clipEnd = clip.offset + (clip.endTime - clip.startTime);
+        
+        if (resizeHandle === 'left') {
+          const newStartTime = Math.min(newTime, clipEnd - 0.1); // Minimum 0.1s duration
+          onResizeClip?.(resizeClipId, newStartTime, clipEnd);
+        } else if (resizeHandle === 'right') {
+          const newEndTime = Math.max(newTime, clipStart + 0.1); // Minimum 0.1s duration
+          onResizeClip?.(resizeClipId, clipStart, newEndTime);
+        }
+      }
+      return;
+    }
     const effectiveDuration = getEffectiveDuration();
     const t = ((x + pan) / (timelineWidth * zoom)) * effectiveDuration;
 
@@ -1824,11 +2080,24 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       const hoveredClip = findClipAtPosition(x, y, 5);
       if (hoveredClip) {
         setHoveredClipId(hoveredClip.id);
-        e.currentTarget.style.cursor = 'pointer'; // Show pointer cursor for clickable clips
+        
+        // Check for resize handles if resize tool is active
+        if (currentTool === 'resize') {
+          const handle = findResizeHandle(x, y, hoveredClip);
+          if (handle === 'left' || handle === 'right') {
+            e.currentTarget.style.cursor = 'ew-resize';
+          } else {
+            e.currentTarget.style.cursor = 'pointer';
+          }
+        } else {
+          e.currentTarget.style.cursor = 'pointer'; // Show pointer cursor for clickable clips
+        }
       } else {
         setHoveredClipId(null);
         if (isInRuler) {
           e.currentTarget.style.cursor = 'ew-resize';
+        } else if (currentTool === 'split') {
+          e.currentTarget.style.cursor = 'crosshair';
         } else {
           e.currentTarget.style.cursor = 'default';
         }
@@ -1893,6 +2162,15 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
   };
 
   const handleMouseUp = () => {
+    // End resize operation
+    if (isResizing) {
+      setIsResizing(false);
+      setResizeClipId(null);
+      setResizeStartX(null);
+      setResizeHandle(null);
+      return;
+    }
+    
     if (isSelecting && selectionStart !== null && selectionEnd !== null) {
       // Complete manual selection
       const start = Math.min(selectionStart, selectionEnd);
@@ -2013,6 +2291,55 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       {/* Header with Timeline Controls */}
       <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-1">
+          {/* Timeline Tools */}
+          <div className="flex items-center gap-1 mr-4 border-r border-slate-600 pr-4">
+            <button
+              onClick={() => setCurrentTool('select')}
+              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors border-0 p-0 ${
+                currentTool === 'select' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover'
+              }`}
+              title="Select Tool"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 100-2 1 1 0 000 2zm7-1a1 1 0 11-2 0 1 1 0 012 0zm-.464 5.535a1 1 0 10-1.415-1.414 3 3 0 01-4.242 0 1 1 0 00-1.415 1.414 5 5 0 007.072 0z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setCurrentTool('split')}
+              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors border-0 p-0 ${
+                currentTool === 'split' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover'
+              }`}
+              title="Split Tool"
+            >
+              <Scissors className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setCurrentTool('resize')}
+              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors border-0 p-0 ${
+                currentTool === 'resize' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover'
+              }`}
+              title="Resize Tool"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <button
+              onClick={() => selectedClipId && onDeleteClip?.(selectedClipId)}
+              disabled={!selectedClipId}
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover transition-colors border-0 p-0 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Delete Selected Clip"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+          
           {/* Undo/Redo Controls */}
           <button
             onClick={onUndo}
@@ -2137,6 +2464,64 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
             e.stopPropagation();
             e.dataTransfer.dropEffect = "copy";
             setIsDragOver(true);
+            
+            // Update drag preview position and size
+            try {
+              const data = JSON.parse(e.dataTransfer.getData("application/json"));
+              if (data.type === "media-file" && data.mediaFile) {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                // Find the closest track to the drop position
+                let targetTrack: Track | null = null;
+                let minDistance = Infinity;
+                
+            sortedTracks.forEach((track: Track) => {
+              const trackY = getTrackYPosition(track.order);
+              const distance = Math.abs(y - (trackY + trackHeight / 2));
+              if (distance < minDistance) {
+                minDistance = distance;
+                targetTrack = track;
+              }
+            });
+                
+                if (targetTrack) {
+                  // Calculate preview dimensions
+                  const effectiveDuration = getEffectiveDuration();
+                  const mediaFile = data.mediaFile;
+                  const clipDuration = mediaFile.duration || 10; // Default 10 seconds if no duration
+                  
+                  // Calculate preview width based on clip duration
+                  const previewWidth = Math.max(80, (clipDuration / effectiveDuration) * (timelineWidth * zoom));
+                  
+                  // Calculate preview position (center on mouse x, align to track)
+                  const track = targetTrack as Track;
+                  const trackY = getTrackYPosition(track.order);
+                  const previewX = Math.max(0, Math.min(timelineWidth - previewWidth, x - previewWidth / 2));
+                  
+                  // Determine media type
+                  let mediaType: 'video' | 'audio' | 'image' = 'video';
+                  if (mediaFile.type === 'Audio') {
+                    mediaType = 'audio';
+                  } else if (mediaFile.type === 'Image') {
+                    mediaType = 'image';
+                  }
+                  
+                  setDragPreview({
+                    visible: true,
+                    x: previewX,
+                    y: trackY,
+                    width: previewWidth,
+                    height: trackHeight,
+                    mediaType,
+                    trackId: track.id
+                  });
+                }
+              }
+            } catch (error) {
+              console.warn("Error parsing drag data for preview:", error);
+            }
           }}
           onDragEnter={(e) => {
             console.log("AdvancedTimeline: Drag enter timeline - event fired!");
@@ -2155,6 +2540,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
             
             if (!timelineContainer.contains(relatedTarget)) {
               setIsDragOver(false);
+              setDragPreview(null); // Hide drag preview when leaving timeline
             }
           }}
           onDrop={(e) => {
@@ -2162,6 +2548,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
             e.preventDefault();
             e.stopPropagation();
             setIsDragOver(false);
+            setDragPreview(null); // Hide drag preview when drop is completed
 
             try {
               const data = JSON.parse(e.dataTransfer.getData("application/json"));
@@ -2184,7 +2571,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
                 let minDistance = Infinity;
                 
                 // Find the closest track to the drop position
-                sortedTracks.forEach(track => {
+                sortedTracks.forEach((track: Track) => {
                   const trackY = getTrackYPosition(track.order);
                   const distance = Math.abs(y - (trackY + trackHeight / 2)); // Distance to track center
                   if (distance < minDistance) {

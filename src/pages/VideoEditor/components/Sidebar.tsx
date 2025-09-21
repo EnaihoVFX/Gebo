@@ -8,7 +8,7 @@ import {
   ChevronRight
 } from "lucide-react";
 import { Chat } from "./Chat";
-import type { Range, ChatSession, ChatMessage } from "../../../types";
+import type { Range, ChatSession, ChatMessage, AgentContext } from "../../../types";
 
 interface SidebarProps {
   debug: string;
@@ -21,6 +21,7 @@ interface SidebarProps {
   onExecuteCommand: (command: string) => void;
   onAcceptPlan: () => void;
   onRejectPlan: () => void;
+  agentContext?: AgentContext;
 }
 
 export function Sidebar({
@@ -34,6 +35,7 @@ export function Sidebar({
   onExecuteCommand,
   onAcceptPlan,
   onRejectPlan,
+  agentContext,
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   
@@ -110,7 +112,7 @@ export function Sidebar({
         let updatedChat = { ...chat, messages, lastActivity: new Date() };
         
         // If this is the first user message and the chat has a default name, update it
-        const userMessages = messages.filter(msg => msg.type === "user");
+        const userMessages = Array.isArray(messages) ? messages.filter(msg => msg.type === "user") : [];
         if (userMessages.length === 1 && chat.name.startsWith("Chat ")) {
           const firstMessage = userMessages[0].content;
           // Create a short name from the first few words of the message
@@ -291,6 +293,7 @@ export function Sidebar({
               previewUrl={previewUrl}
               onAcceptPlan={onAcceptPlan}
               onRejectPlan={onRejectPlan}
+              agentContext={agentContext}
             />
           </div>
         </>

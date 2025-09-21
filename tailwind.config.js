@@ -7,39 +7,48 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Video Editor Color System - Consistent slate-based palette
-        slate: {
-          750: '#1e293b',
-          850: '#0f172a',
+        // Enhanced zinc-based palette for glassmorphic design
+        zinc: {
+          750: '#3f3f46',
+          850: '#27272a',
+          925: '#18181b',
+          975: '#09090b',
         },
-        // Video Editor specific colors for consistent theming
+        // Video Editor Color System - Enhanced glassmorphic palette
         editor: {
-          // Background colors
+          // Background colors with glassmorphic support
           bg: {
-            primary: '#0f172a',    // slate-900
-            secondary: '#1e293b',  // slate-800
-            tertiary: '#334155',   // slate-700
-            panel: '#1e293b',      // slate-800
-            canvas: '#0a0a0a',     // near-black for canvas
+            primary: '#09090b',        // zinc-950 - main background
+            secondary: '#18181b',      // zinc-900 - secondary panels
+            tertiary: '#27272a',       // zinc-800 - elevated elements
+            glass: {
+              primary: 'rgba(39, 39, 42, 0.35)',    // zinc-800/35 - main glass
+              secondary: 'rgba(39, 39, 42, 0.25)',   // zinc-800/25 - lighter glass
+              tertiary: 'rgba(63, 63, 70, 0.20)',    // zinc-700/20 - subtle glass
+              overlay: 'rgba(0, 0, 0, 0.60)',        // backdrop overlay
+            },
+            panel: '#18181b',          // zinc-900 - panel backgrounds
+            canvas: '#09090b',         // zinc-950 - canvas/timeline
           },
           // Text colors
           text: {
-            primary: '#f1f5f9',    // slate-100
-            secondary: '#cbd5e1',  // slate-300
-            tertiary: '#94a3b8',   // slate-400
-            muted: '#64748b',      // slate-500
+            primary: 'rgba(255, 255, 255, 0.90)',   // white/90 - primary text
+            secondary: 'rgba(255, 255, 255, 0.80)', // white/80 - secondary text
+            tertiary: 'rgba(255, 255, 255, 0.50)',  // white/50 - tertiary text
+            muted: 'rgba(255, 255, 255, 0.40)',     // white/40 - muted text
           },
-          // Border colors
+          // Border colors for glassmorphic effects
           border: {
-            primary: '#475569',    // slate-600
-            secondary: '#334155',  // slate-700
-            accent: '#1e293b',     // slate-800
+            primary: 'rgba(255, 255, 255, 0.20)',   // white/20 - primary borders
+            secondary: 'rgba(255, 255, 255, 0.15)', // white/15 - secondary borders
+            tertiary: 'rgba(255, 255, 255, 0.10)',  // white/10 - subtle borders
+            accent: 'rgba(255, 255, 255, 0.30)',    // white/30 - accent borders
           },
-          // Interactive states
+          // Interactive states with glassmorphic effects
           interactive: {
-            hover: '#334155',      // slate-700
-            active: '#475569',     // slate-600
-            disabled: '#475569',   // slate-600
+            hover: 'rgba(255, 255, 255, 0.10)',     // white/10 - hover overlay
+            active: 'rgba(255, 255, 255, 0.20)',    // white/20 - active state
+            disabled: 'rgba(255, 255, 255, 0.05)',  // white/5 - disabled state
           },
           // Status colors
           status: {
@@ -48,7 +57,7 @@ export default {
             error: '#ef4444',      // red-500
             info: '#3b82f6',       // blue-500
           },
-          // Timeline specific colors
+          // Enhanced timeline colors
           timeline: {
             waveform: '#71717a',   // zinc-500
             cut: {

@@ -3,6 +3,7 @@ use serde::{Serialize, Deserialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use base64::Engine;
 
 /// --- Public Types ------------------------------------------------------------------
 
@@ -403,7 +404,7 @@ pub fn generate_thumbnails(input: &str, count: usize, width: u32) -> Result<Vec<
     }
 
     // Convert to base64
-    let base64 = base64::encode(&output.stdout);
+    let base64 = base64::engine::general_purpose::STANDARD.encode(&output.stdout);
     thumbnails.push(base64);
   }
 

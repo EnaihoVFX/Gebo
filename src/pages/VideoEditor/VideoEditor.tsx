@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { exportCutlist } from "../../lib/ffmpeg";
-import type { Range, PlayerHandle, Track, Clip } from "../../types";
+import type { Range, PlayerHandle, Track, Clip, EditOperation } from "../../types";
+import { useProject } from "../../hooks/useProject";
 import { Player } from "./components/Player";
 import { AdvancedTimeline, type AdvancedTimelineHandle } from "./components/AdvancedTimeline";
 import { VideoTimeline } from "./components/VideoTimeline";
@@ -21,10 +22,12 @@ import {
   BarChart3, 
   Play
 } from "lucide-react";
+import type { AgentContext } from "../../types";
 
 import DebugProjectFileInfo from "./components/DebugProjectFileInfo";
 import { DeveloperOverlay } from "./components/DeveloperOverlay";
 import Modal from "../../components/Modal";
+import { ApiKeyManager } from "../../components/ApiKeyManager";
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { useProjectFile } from './hooks/useProjectFileManager';
@@ -91,30 +94,20 @@ export default function VideoEditor() {
   const [previewCuts, setPreviewCuts] = useState<Range[]>([]);
   const [acceptedCuts, setAcceptedCuts] = useState<Range[]>([]);
   
-  // Tracks - Start with default video and audio tracks centered vertically
-  const [tracks, setTracks] = useState<Track[]>([
-    {
-      id: 'video-1',
-      name: 'Video Track',
-      type: 'video',
-      enabled: true,
-      muted: false,
-      volume: 100,
-      order: 0  // Center position
-    },
-    {
-      id: 'audio-1',
-      name: 'Audio Track',
-      type: 'audio',
-      enabled: true,
-      muted: false,
-      volume: 100,
-      order: 1  // Just below center
-    }
-  ]);
+  // Use JSON-based project system
+  const { 
+    projectData, 
+    addTrack, 
+    updateTrack, 
+    addClip, 
+    removeClip, 
+    splitClip: projectSplitClip, 
+    resizeClip: projectResizeClip,
+  } = useProject();
 
-  // Clips on timeline
-  const [clips, setClips] = useState<Clip[]>([]);
+  // Extract tracks and clips from project data
+  const tracks = (projectData?.tracks || []) as Track[];
+  const clips = (projectData?.clips || []) as Clip[];
   
   // Undo/Redo system
   const [editHistory, setEditHistory] = useState<Range[][]>([[]]);
@@ -135,6 +128,9 @@ export default function VideoEditor() {
   
   // Developer overlay
   const [showDeveloperOverlay, setShowDeveloperOverlay] = useState(false);
+  
+  // API Key manager
+  const [showApiKeyManager, setShowApiKeyManager] = useState(false);
   
   // Project manager (from merged PR)
   const projectManager = useProjectFile();
@@ -247,6 +243,30 @@ export default function VideoEditor() {
   };
   const rejectPlan = () => { setPreviewCuts([]); };
 
+  // Apply edit operations from AI agent
+  const applyEditOperations = (operations: EditOperation[]) => {
+    console.log('Applying edit operations:', operations);
+    
+    // Convert edit operations to cuts
+    const newCuts: Range[] = [];
+    
+    for (const operation of operations) {
+      if (operation.type === 'cut' && operation.timeRange) {
+        newCuts.push({
+          start: operation.timeRange.start,
+          end: operation.timeRange.end
+        });
+        log(`AI Agent: ${operation.description}`);
+      }
+    }
+    
+    if (newCuts.length > 0) {
+      // Set as preview cuts so user can review before accepting
+      setPreviewCuts(newCuts);
+      log(`AI Agent generated ${newCuts.length} cuts for review`);
+    }
+  };
+
   // Undo/Redo system
   const saveToHistory = (newCuts: Range[]) => {
     const newHistory = editHistory.slice(0, historyIndex + 1);
@@ -290,13 +310,9 @@ export default function VideoEditor() {
   };
 
 
-  // Track management functions
-  const updateTrack = (trackId: string, updates: Partial<Track>) => {
-    setTracks(prevTracks => 
-      prevTracks.map(track => 
-        track.id === trackId ? { ...track, ...updates } : track
-      )
-    );
+  // Track management functions (now using project system)
+  const handleUpdateTrack = (trackId: string, updates: Partial<Track>) => {
+    updateTrack(trackId, updates);
   };
 
   // Handle dropping media files onto timeline tracks
@@ -344,21 +360,15 @@ export default function VideoEditor() {
     
     console.log("Created clip:", clip);
     
-    // Add clip to state
-    setClips(prevClips => {
-      const newClips = [...prevClips, clip];
-      console.log("Updated clips array:", newClips);
-      console.log("New clip created:", clip);
-      log(`Created clip: ${clip.name} (${clip.startTime.toFixed(2)}s - ${clip.endTime.toFixed(2)}s) at offset ${clip.offset.toFixed(2)}s`);
-      log(`Total clips now: ${newClips.length}`);
-      return newClips;
-    });
+    // Add clip using project system
+    addClip(clip);
+    log(`Created clip: ${clip.name} (${clip.startTime.toFixed(2)}s - ${clip.endTime.toFixed(2)}s) at offset ${clip.offset.toFixed(2)}s`);
 
     // Note: Clips are now independent and don't need to be converted to cuts
     // Each clip will show its own waveform and thumbnail
   };
 
-  const addTrack = (type: Track['type']) => {
+  const handleAddTrack = (type: Track['type']) => {
     const newTrack: Track = {
       id: `${type}-${Date.now()}`,
       name: `${type.charAt(0).toUpperCase() + type.slice(1)} Track ${tracks.filter(t => t.type === type).length + 1}`,
@@ -366,28 +376,10 @@ export default function VideoEditor() {
       enabled: true,
       muted: false,
       volume: 100,
-      order: 0 // Will be calculated based on position
+      order: tracks.length,
     };
 
-    setTracks(prevTracks => {
-      const videoTracks = prevTracks.filter(t => t.type === 'video');
-      const audioTracks = prevTracks.filter(t => t.type === 'audio');
-      
-      if (type === 'video') {
-        // Add video tracks above existing video tracks (negative order values)
-        const newOrder = videoTracks.length > 0 ? Math.min(...videoTracks.map(t => t.order)) - 1 : -1;
-        newTrack.order = newOrder;
-        
-        return [...prevTracks, newTrack];
-      } else {
-        // Add audio tracks below existing audio tracks (positive order values)
-        const newOrder = audioTracks.length > 0 ? Math.max(...audioTracks.map(t => t.order)) + 1 : 2;
-        newTrack.order = newOrder;
-        
-        return [...prevTracks, newTrack];
-      }
-    });
-    
+    addTrack(newTrack);
     log(`Added new ${type} track: ${newTrack.name}`);
   };
 
@@ -410,14 +402,41 @@ export default function VideoEditor() {
   const deleteClip = (clipId: string) => {
     const clip = clips.find(c => c.id === clipId);
     if (clip) {
-      setClips(prevClips => prevClips.filter(c => c.id !== clipId));
+      removeClip(clipId);
       log(`Deleted clip: ${clip.name}`);
-
-      // Temporarily disabled: Check if we need to delete empty tracks after removing this clip
-      // setTimeout(() => {
-      //   deleteEmptyTracks();
-      // }, 0);
     }
+  };
+
+  const splitClip = (clipId: string, splitTime: number) => {
+    const clip = clips.find(c => c.id === clipId);
+    if (!clip) return;
+
+    // Calculate the split position relative to the clip's timeline position
+    const clipStart = clip.offset;
+    const clipEnd = clip.offset + (clip.endTime - clip.startTime);
+    
+    // Ensure split time is within the clip bounds
+    const relativeSplitTime = Math.max(clipStart, Math.min(splitTime, clipEnd));
+    
+    // Note: The actual splitting is handled by the project system
+
+    // Use project system to split clip
+    projectSplitClip(clipId, relativeSplitTime);
+    log(`Split clip "${clip.name}" at ${relativeSplitTime.toFixed(2)}s into two segments`);
+  };
+
+  const resizeClip = (clipId: string, newStartTime: number, newEndTime: number) => {
+    const clip = clips.find(c => c.id === clipId);
+    if (!clip) return;
+
+    // Ensure the new times are valid
+    const clipStart = clip.offset;
+    
+    // Note: The actual resizing is handled by the project system
+
+    // Use project system to resize clip
+    projectResizeClip(clipId, newStartTime, newEndTime);
+    log(`Resized clip "${clip.name}" from ${newStartTime.toFixed(2)}s to ${newEndTime.toFixed(2)}s`);
   };
 
   // Mark In/Out functionality
@@ -619,14 +638,30 @@ export default function VideoEditor() {
     return path.split('/').pop() || path.split('\\').pop() || path;
   };
 
+  // Create agent context for AI agent
+  const agentContext: AgentContext = {
+    currentProject: {
+      filePath: filePath || "",
+      duration,
+      tracks,
+      clips,
+      mediaFiles,
+      acceptedCuts,
+      previewCuts,
+    },
+    userIntent: "", // Will be set by the agent based on user input
+    conversationHistory: [], // Could be populated from chat history if needed
+  };
+
   // Test if basic JavaScript is working
   console.log("About to render VideoEditor component");
   
   return (
-    <div className="h-screen bg-editor-bg-primary text-slate-100 flex flex-col overflow-hidden">
+    <div className="h-screen bg-zinc-950 text-white flex flex-col overflow-hidden">
       
-      {/* Header Bar - Responsive Design */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between px-3 sm:px-4 py-2 sm:py-3 bg-editor-bg-secondary border-b border-editor-border-secondary flex-shrink-0 gap-3 lg:gap-0">
+      {/* Header Bar - Glassmorphic Design */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between px-3 sm:px-4 py-2 sm:py-3 bg-editor-bg-glass-primary backdrop-blur-2xl border-b border-editor-border-tertiary flex-shrink-0 gap-3 lg:gap-0 relative">
+        <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-none"></div>
         
         {/* Debug Console - Always visible when enabled */}
         {showMobileDebug && (
@@ -666,31 +701,44 @@ export default function VideoEditor() {
             </div>
           </div>
         )}
-        <div className="flex items-center gap-3 sm:gap-4 h-10">
+        <div className="flex items-center gap-3 sm:gap-4 h-10 relative z-10">
           <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="Video Copilot Logo" className="h-6 w-auto" />
+            <img src="/logo.png" alt="Video Copilot Logo" className="h-6 w-auto opacity-90" />
           </div>
           <div className="flex items-center gap-1 sm:gap-2">
             <button 
               onClick={handleGoHome}
-              className="flex items-center justify-center w-8 h-8 text-editor-text-secondary hover:text-editor-text-primary hover:bg-editor-bg-tertiary rounded-lg transition-colors border-0 p-0"
+              className="group flex items-center justify-center w-8 h-8 text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary rounded-xl transition-all duration-300 hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
               title="Close Editor"
             >
-              <Home className="w-4 h-4 flex-shrink-0" />
+              <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+              <Home className="w-4 h-4 flex-shrink-0 relative z-10" />
             </button>
             <button 
               onClick={() => setJsonModal(true)}
-              className="flex items-center justify-center w-8 h-8 text-editor-text-secondary hover:text-editor-text-primary hover:bg-editor-bg-tertiary rounded-lg transition-colors border-0 p-0"
+              className="group flex items-center justify-center w-8 h-8 text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary rounded-xl transition-all duration-300 hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
               title="Project Info"
             >
-              <Info className="w-4 h-4 flex-shrink-0" />
+              <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+              <Info className="w-4 h-4 flex-shrink-0 relative z-10" />
             </button>
             <button 
               onClick={() => setShowDeveloperOverlay(true)}
-              className="flex items-center justify-center w-8 h-8 text-editor-text-secondary hover:text-editor-text-primary hover:bg-editor-bg-tertiary rounded-lg transition-colors border-0 p-0"
+              className="group flex items-center justify-center w-8 h-8 text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary rounded-xl transition-all duration-300 hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
               title="Open Developer Console"
             >
-              <BarChart3 className="w-4 h-4 flex-shrink-0" />
+              <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+              <BarChart3 className="w-4 h-4 flex-shrink-0 relative z-10" />
+            </button>
+            <button 
+              onClick={() => setShowApiKeyManager(true)}
+              className="group flex items-center justify-center w-8 h-8 text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary rounded-xl transition-all duration-300 hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
+              title="Configure AI API Key"
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+              <svg className="w-4 h-4 flex-shrink-0 relative z-10" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/>
+              </svg>
             </button>
           </div>
         </div>
@@ -960,7 +1008,10 @@ export default function VideoEditor() {
             onExecuteCommand={handleExecuteCommand}
             onAcceptPlan={acceptPlan}
             onRejectPlan={rejectPlan}
+            onApplyEditOperations={applyEditOperations}
+            agentContext={agentContext}
           />
+          
         </div>
       </div>
 
@@ -981,10 +1032,12 @@ export default function VideoEditor() {
               onSeek={seekVideo}
               onAddCut={handleAddCut}
               onRemoveCut={handleRemoveCut}
-              onUpdateTrack={updateTrack}
-              onAddTrack={addTrack}
+              onUpdateTrack={handleUpdateTrack}
+              onAddTrack={handleAddTrack}
               onDropMedia={handleDropMedia}
               onDeleteClip={deleteClip}
+              onSplitClip={splitClip}
+              onResizeClip={resizeClip}
               onUndo={undo}
               onRedo={redo}
               historyIndex={historyIndex}
@@ -1064,6 +1117,15 @@ export default function VideoEditor() {
         projectFile={projectFile}
         isOpen={showDeveloperOverlay}
         onClose={() => setShowDeveloperOverlay(false)}
+      />
+
+      {/* API Key Manager */}
+      <ApiKeyManager
+        isOpen={showApiKeyManager}
+        onClose={() => setShowApiKeyManager(false)}
+        onApiKeySet={() => {
+          console.log('API key configured successfully');
+        }}
       />
     </div>
   );

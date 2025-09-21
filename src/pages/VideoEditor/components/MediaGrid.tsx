@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect } from "react";
-import { Plus, Video, Music, X } from "lucide-react";
+import { Plus, Video, Music, X, Mic, MicOff, Loader, CheckCircle, XCircle, Eye, EyeOff } from "lucide-react";
 import type { MediaFile } from "../../../types";
 
 interface MediaGridProps {
@@ -227,6 +227,60 @@ export function MediaGrid({ mediaFiles, onAddMedia, onRemoveMedia, onDragStart }
                   <div className="absolute top-1 left-1 w-5 h-5 bg-slate-600 text-slate-300 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <div className="w-2 h-2 bg-slate-300 rounded-full"></div>
                   </div>
+
+                  {/* Video analysis status indicator (primary for videos) */}
+                  {mediaFile.type === 'video' && (
+                    <div className="absolute top-1 left-7 w-5 h-5 bg-slate-600 text-slate-300 rounded-full flex items-center justify-center opacity-80 transition-opacity" title={
+                      mediaFile.videoAnalysisStatus === 'completed' ? 'Video analyzed by Gemini' :
+                      mediaFile.videoAnalysisStatus === 'processing' ? 'Analyzing video...' :
+                      mediaFile.videoAnalysisStatus === 'pending' ? 'Pending video analysis' :
+                      mediaFile.videoAnalysisStatus === 'failed' ? 'Video analysis failed' :
+                      'No video analysis'
+                    }>
+                      {mediaFile.videoAnalysisStatus === 'completed' && (
+                        <CheckCircle className="w-3 h-3 text-green-400" />
+                      )}
+                      {mediaFile.videoAnalysisStatus === 'processing' && (
+                        <Loader className="w-3 h-3 text-blue-400 animate-spin" />
+                      )}
+                      {mediaFile.videoAnalysisStatus === 'pending' && (
+                        <Eye className="w-3 h-3 text-yellow-400" />
+                      )}
+                      {mediaFile.videoAnalysisStatus === 'failed' && (
+                        <XCircle className="w-3 h-3 text-red-400" />
+                      )}
+                      {!mediaFile.videoAnalysisStatus && (
+                        <EyeOff className="w-3 h-3 text-slate-400" />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Transcription status indicator (fallback for videos, primary for audio) */}
+                  {(mediaFile.type === 'video' || mediaFile.type === 'audio') && (
+                    <div className={`absolute top-1 ${mediaFile.type === 'video' ? 'left-12' : 'left-7'} w-5 h-5 bg-slate-600 text-slate-300 rounded-full flex items-center justify-center opacity-80 transition-opacity`} title={
+                      mediaFile.transcriptionStatus === 'completed' ? 'Transcribed' :
+                      mediaFile.transcriptionStatus === 'processing' ? 'Transcribing...' :
+                      mediaFile.transcriptionStatus === 'pending' ? 'Pending transcription' :
+                      mediaFile.transcriptionStatus === 'failed' ? 'Transcription failed' :
+                      'No transcription'
+                    }>
+                      {mediaFile.transcriptionStatus === 'completed' && (
+                        <CheckCircle className="w-3 h-3 text-green-400" />
+                      )}
+                      {mediaFile.transcriptionStatus === 'processing' && (
+                        <Loader className="w-3 h-3 text-blue-400 animate-spin" />
+                      )}
+                      {mediaFile.transcriptionStatus === 'pending' && (
+                        <Mic className="w-3 h-3 text-yellow-400" />
+                      )}
+                      {mediaFile.transcriptionStatus === 'failed' && (
+                        <XCircle className="w-3 h-3 text-red-400" />
+                      )}
+                      {!mediaFile.transcriptionStatus && (
+                        <MicOff className="w-3 h-3 text-slate-400" />
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { singleReadProject, loadProject, type ProjectFile } from '../../../lib/projectFile';
 import { addRecentProject } from '../../../lib/longtermStorage';
-import { openEditorWindow } from '../../../lib/windowManager';
+import { useNavigate } from 'react-router-dom';
 
 interface RecentProjectProps {
   projectPath: string;
@@ -10,6 +10,7 @@ interface RecentProjectProps {
 }
 
 export default function RecentProject({ projectPath, onLoadingStart, onProjectOpened }: RecentProjectProps) {
+  const navigate = useNavigate();
   const [projectDetails, setProjectDetails] = useState<ProjectFile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,8 +56,8 @@ export default function RecentProject({ projectPath, onLoadingStart, onProjectOp
         onProjectOpened?.();
       }, 0);
 
-      // Open editor window
-      await openEditorWindow();
+      // Navigate to editor
+      navigate('/editor');
     } catch (error) {
       console.error("Failed to open project:", error);
       // Could add error handling UI here

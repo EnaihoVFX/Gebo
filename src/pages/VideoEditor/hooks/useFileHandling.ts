@@ -2,6 +2,8 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { audioPeaks, makePreviewProxy, probeVideo, readFileAsBase64, copyToAppData, readFileChunk, getFileSize, generateThumbnails, type Probe } from "../../../lib/ffmpeg";
+import { transcriptionService } from "../../../lib/transcription";
+import { videoAnalysisService } from "../../../lib/videoAnalysis";
 import type { MediaFile } from "../../../types";
 
 export function useFileHandling() {
@@ -386,12 +388,105 @@ export function useFileHandling() {
         duration: probe.duration,
         width: finalWidth,
         height: finalHeight,
-        type: fileType
+        type: fileType,
+        // Initialize analysis status - video analysis first, transcription as fallback
+        videoAnalysisStatus: videoAnalysisService.shouldAnalyze(filePath, fileType) ? "pending" : undefined,
+        transcriptionStatus: transcriptionService.shouldTranscribe(filePath, fileType) ? "pending" : undefined
       };
 
-      // Add to media files
+      // Add to media files first (so it appears in UI immediately)
       setMediaFiles(prev => [...prev, mediaFile]);
       log(`✅ Added media file: ${mediaFile.name}`);
+
+      // Helper function for transcription fallback
+      const startTranscriptionFallback = (mediaId: string, filePath: string) => {
+        log(`🎤 Starting transcription for: ${mediaFile.name}`);
+        
+        // Update status to processing
+        setMediaFiles(prev => prev.map(mf => 
+          mf.id === mediaId 
+            ? { ...mf, transcriptionStatus: "processing" }
+            : mf
+        ));
+
+        // Start transcription in background
+        transcriptionService.transcribeMediaFile(filePath, { useMock: false })
+          .then(result => {
+            log(`✅ Transcription completed for: ${mediaFile.name}`);
+            setMediaFiles(prev => prev.map(mf => 
+              mf.id === mediaId 
+                ? { 
+                    ...mf, 
+                    transcript: result.segments,
+                    transcriptionStatus: "completed"
+                  }
+                : mf
+            ));
+          })
+          .catch(error => {
+            log(`❌ Transcription failed for: ${mediaFile.name} - ${error.message}`);
+            setMediaFiles(prev => prev.map(mf => 
+              mf.id === mediaId 
+                ? { 
+                    ...mf, 
+                    transcriptionStatus: "failed",
+                    transcriptionError: error.message
+                  }
+                : mf
+            ));
+          });
+      };
+
+      // Start video analysis first if it's a video file
+      if (videoAnalysisService.shouldAnalyze(filePath, fileType)) {
+        log(`🎥 Starting video analysis for: ${mediaFile.name}`);
+        
+        // Update status to processing
+        setMediaFiles(prev => prev.map(mf => 
+          mf.id === mediaFile.id 
+            ? { ...mf, videoAnalysisStatus: "processing" }
+            : mf
+        ));
+
+        // Start video analysis in background with actual duration
+        videoAnalysisService.analyzeVideoFile(filePath, { 
+          useMock: false,
+          duration: probe?.duration 
+        })
+          .then(result => {
+            log(`✅ Video analysis completed for: ${mediaFile.name}`);
+            setMediaFiles(prev => prev.map(mf => 
+              mf.id === mediaFile.id 
+                ? { 
+                    ...mf, 
+                    videoAnalysis: result,
+                    videoAnalysisStatus: "completed"
+                  }
+                : mf
+            ));
+          })
+          .catch(error => {
+            log(`❌ Video analysis failed for: ${mediaFile.name} - ${error.message}`);
+            setMediaFiles(prev => prev.map(mf => 
+              mf.id === mediaFile.id 
+                ? { 
+                    ...mf, 
+                    videoAnalysisStatus: "failed",
+                    videoAnalysisError: error.message
+                  }
+                : mf
+            ));
+
+            // Fallback to transcription if video analysis fails
+            if (transcriptionService.shouldTranscribe(filePath, fileType)) {
+              log(`🎤 Falling back to transcription for: ${mediaFile.name}`);
+              startTranscriptionFallback(mediaFile.id, filePath);
+            }
+          });
+      } else if (transcriptionService.shouldTranscribe(filePath, fileType)) {
+        // For audio files, go straight to transcription
+        startTranscriptionFallback(mediaFile.id, filePath);
+      }
 
       return mediaFile;
     } catch (e: any) {

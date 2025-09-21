@@ -4,6 +4,13 @@ mod ffmpeg;
 mod waveform;
 mod project_file;
 mod longterm_storage;
+mod ai_agent;
+mod gemini_client;
+mod transcription;
+mod video_analysis;
+
+use crate::transcription::transcribe_media_file;
+use crate::video_analysis::analyze_video_file;
 
 #[tauri::command]
 fn probe_video(path: String) -> Result<ffmpeg::Probe, String> {
@@ -210,6 +217,32 @@ fn get_recent_projects() -> Result<Vec<String>, String> {
   longterm_storage::get_recent_projects().map_err(|e| e.to_string())
 }
 
+// AI Agent commands
+
+#[tauri::command]
+async fn process_ai_message(
+  user_message: String,
+  context: ai_agent::AgentContext,
+) -> Result<ai_agent::AgentResponse, String> {
+  ai_agent::process_message(user_message, context).await
+}
+
+#[tauri::command]
+fn set_gemini_api_key(api_key: String) -> Result<(), String> {
+  ai_agent::set_api_key(api_key)
+}
+
+#[tauri::command]
+async fn get_gemini_api_key() -> Result<Option<String>, String> {
+  ai_agent::get_api_key().await
+}
+
+#[tauri::command]
+async fn has_gemini_api_key() -> Result<bool, String> {
+  let key = ai_agent::get_api_key().await?;
+  Ok(key.is_some())
+}
+
 fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
@@ -239,7 +272,16 @@ fn main() {
       single_read_project,
       // Longterm storage commands
       add_recent_project,
-      get_recent_projects
+      get_recent_projects,
+      // AI Agent commands
+      process_ai_message,
+      set_gemini_api_key,
+      get_gemini_api_key,
+      has_gemini_api_key,
+      // Transcription commands
+      transcribe_media_file,
+      // Video analysis commands
+      analyze_video_file
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
