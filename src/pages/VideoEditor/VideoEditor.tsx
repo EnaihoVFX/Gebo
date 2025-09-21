@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { exportCutlist } from "../../lib/ffmpeg";
-import type { Range, PlayerHandle, Track, Clip, EditOperation } from "../../types";
+import type { Range, PlayerHandle, Track, Clip } from "../../types";
 import { useProject } from "../../hooks/useProject";
 import { Player } from "./components/Player";
 import { AdvancedTimeline, type AdvancedTimelineHandle } from "./components/AdvancedTimeline";
@@ -243,29 +243,6 @@ export default function VideoEditor() {
   };
   const rejectPlan = () => { setPreviewCuts([]); };
 
-  // Apply edit operations from AI agent
-  const applyEditOperations = (operations: EditOperation[]) => {
-    console.log('Applying edit operations:', operations);
-    
-    // Convert edit operations to cuts
-    const newCuts: Range[] = [];
-    
-    for (const operation of operations) {
-      if (operation.type === 'cut' && operation.timeRange) {
-        newCuts.push({
-          start: operation.timeRange.start,
-          end: operation.timeRange.end
-        });
-        log(`AI Agent: ${operation.description}`);
-      }
-    }
-    
-    if (newCuts.length > 0) {
-      // Set as preview cuts so user can review before accepting
-      setPreviewCuts(newCuts);
-      log(`AI Agent generated ${newCuts.length} cuts for review`);
-    }
-  };
 
   // Undo/Redo system
   const saveToHistory = (newCuts: Range[]) => {
@@ -430,7 +407,6 @@ export default function VideoEditor() {
     if (!clip) return;
 
     // Ensure the new times are valid
-    const clipStart = clip.offset;
     
     // Note: The actual resizing is handled by the project system
 
@@ -657,44 +633,44 @@ export default function VideoEditor() {
   console.log("About to render VideoEditor component");
   
   return (
-    <div className="h-screen bg-zinc-950 text-white flex flex-col overflow-hidden">
+    <div className="h-screen bg-editor-bg-primary text-white flex flex-col overflow-hidden">
       
       {/* Header Bar - Glassmorphic Design */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between px-3 sm:px-4 py-2 sm:py-3 bg-editor-bg-glass-primary backdrop-blur-2xl border-b border-editor-border-tertiary flex-shrink-0 gap-3 lg:gap-0 relative">
-        <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-none"></div>
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between px-3 sm:px-4 py-2 sm:py-3 bg-editor-bg-glass-primary backdrop-blur-2xl border border-editor-border-tertiary rounded-2xl mx-3 mt-3 mb-1 flex-shrink-0 gap-3 lg:gap-0 relative shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]">
+        <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-2xl"></div>
         
         {/* Debug Console - Always visible when enabled */}
         {showMobileDebug && (
-          <div className="w-full border border-slate-600 rounded-lg p-3 bg-slate-800 mb-2">
+          <div className="w-full border border-editor-border-tertiary rounded-lg p-3 bg-editor-bg-glass-secondary backdrop-blur-xl mb-2">
             <div className="space-y-2 text-xs">
               <div className="flex items-center justify-between">
-                <span className="text-slate-300 font-medium">Debug Console</span>
+                <span className="text-editor-text-secondary font-medium">Debug Console</span>
                 <button 
                   onClick={() => setShowMobileDebug(false)}
-                  className="text-slate-400 hover:text-slate-200"
+                  className="text-editor-text-tertiary hover:text-editor-text-primary"
                 >
                   ✕
                 </button>
               </div>
               <div>
-                <span className="text-slate-400">File Path:</span>
-                <div className="text-slate-300 break-all">{filePath || "None"}</div>
+                <span className="text-editor-text-tertiary">File Path:</span>
+                <div className="text-editor-text-secondary break-all">{filePath || "None"}</div>
               </div>
               <div>
-                <span className="text-slate-400">Duration:</span>
-                <div className="text-slate-300">{probe ? `${probe.duration}s` : "None"}</div>
+                <span className="text-editor-text-tertiary">Duration:</span>
+                <div className="text-editor-text-secondary">{probe ? `${probe.duration}s` : "None"}</div>
               </div>
               <div>
-                <span className="text-slate-400">Cuts:</span>
-                <div className="text-slate-300">Accepted: {acceptedCuts.length}, Preview: {previewCuts.length}</div>
+                <span className="text-editor-text-tertiary">Cuts:</span>
+                <div className="text-editor-text-secondary">Accepted: {acceptedCuts.length}, Preview: {previewCuts.length}</div>
               </div>
               <div>
-                <span className="text-slate-400">Media Files:</span>
-                <div className="text-slate-300">{mediaFiles.length} files loaded</div>
+                <span className="text-editor-text-tertiary">Media Files:</span>
+                <div className="text-editor-text-secondary">{mediaFiles.length} files loaded</div>
               </div>
               <div className="mt-2">
-                <span className="text-slate-400">Recent Logs:</span>
-                <pre className="text-slate-300 whitespace-pre-wrap text-xs max-h-32 overflow-y-auto bg-slate-900 p-2 rounded">
+                <span className="text-editor-text-tertiary">Recent Logs:</span>
+                <pre className="text-editor-text-secondary whitespace-pre-wrap text-xs max-h-32 overflow-y-auto bg-editor-bg-canvas p-2 rounded">
                   {debug.split('\n').slice(-10).join('\n') || "No recent logs"}
                 </pre>
               </div>
@@ -744,7 +720,7 @@ export default function VideoEditor() {
         </div>
         
         {/* Main Toolbar - Responsive */}
-        <div className="flex items-center justify-end lg:justify-start h-10">
+        <div className="flex items-center justify-end lg:justify-start h-10 relative z-10">
           <Toolbar
             onExport={onExport}
             acceptedCuts={acceptedCuts}
@@ -755,12 +731,13 @@ export default function VideoEditor() {
       {/* Main Content Area - Media Left, Video Center, Tools Right */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Left Panel - Tools & Media */}
-        <div className="block w-[36rem] 2xl:w-[40rem] flex h-full min-h-0 gap-0">
+        <div className="block w-[36rem] 2xl:w-[40rem] flex h-full min-h-0 gap-3 p-2">
           {/* Left Section - Menu */}
-          <div className="w-12 border border-slate-700 bg-slate-700 rounded-l-lg overflow-hidden flex flex-col h-full min-h-0">
+          <div className="w-12 bg-editor-bg-glass-primary backdrop-blur-2xl border border-editor-border-tertiary rounded-2xl overflow-hidden flex flex-col h-full min-h-0 shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)] relative">
+            <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-2xl"></div>
             {/* Header */}
-            <div className="px-2 py-2.5 border-b border-slate-700 bg-slate-800 flex items-center justify-center">
-              <div className="text-slate-400">
+            <div className="px-2 py-2.5 border-b border-editor-border-tertiary bg-editor-bg-glass-secondary backdrop-blur-xl flex items-center justify-center relative z-10">
+              <div className="text-editor-text-muted">
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
                 </svg>
@@ -768,19 +745,20 @@ export default function VideoEditor() {
             </div>
             
             {/* Menu Content */}
-            <div className="bg-slate-800 flex-1 p-1 flex flex-col justify-center">
+            <div className="bg-editor-bg-glass-secondary backdrop-blur-xl flex-1 p-1 flex flex-col justify-center relative z-10">
               <div className="space-y-3 -mt-1">
                 {/* Media */}
                 <button 
                   onClick={() => setActivePanel('media')}
-                  className={`w-full h-10 rounded-lg transition-all duration-200 flex items-center justify-center group focus:outline-none ${
+                  className={`group w-full h-10 rounded-xl transition-all duration-300 flex items-center justify-center focus:outline-none relative overflow-hidden ${
                     activePanel === 'media' 
-                      ? 'text-white bg-slate-600' 
-                      : 'text-slate-300 hover:text-white hover:bg-slate-600'
+                      ? 'text-editor-text-primary bg-editor-interactive-active border border-editor-border-secondary shadow-[0_4px_12px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.2)]' 
+                      : 'text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]'
                   }`}
                   title="Media"
                 >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+                  <svg className="w-5 h-5 relative z-10 text-current" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M19,4H5A3,3,0,0,0,2,7V17a3,3,0,0,0,3,3H19a3,3,0,0,0,3-3V7A3,3,0,0,0,19,4ZM5,18a1,1,0,0,1-1-1V14.58l3.3-3.29a1,1,0,0,1,1.4,0L15.41,18Zm15-1a1,1,0,0,1-1,1h-.77l-3.81-3.83.88-.88a1,1,0,0,1,1.4,0L20,16.58Zm0-3.24-1.88-1.87a3.06,3.06,0,0,0-4.24,0l-.88.88L10.12,9.89a3.06,3.06,0,0,0-4.24,0L4,11.76V7A1,1,0,0,1,5,6H19a1,1,0,0,1,1,1Z"/>
                   </svg>
                 </button>
@@ -788,14 +766,15 @@ export default function VideoEditor() {
                 {/* Transitions */}
                 <button 
                   onClick={() => setActivePanel('transitions')}
-                  className={`w-full h-10 rounded-lg transition-all duration-200 flex items-center justify-center group focus:outline-none ${
+                  className={`group w-full h-10 rounded-xl transition-all duration-300 flex items-center justify-center focus:outline-none relative overflow-hidden ${
                     activePanel === 'transitions' 
-                      ? 'text-white bg-slate-600' 
-                      : 'text-slate-300 hover:text-white hover:bg-slate-600'
+                      ? 'text-editor-text-primary bg-editor-interactive-active border border-editor-border-secondary shadow-[0_4px_12px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.2)]' 
+                      : 'text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]'
                   }`}
                   title="Transitions"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20">
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+                  <svg className="w-5 h-5 relative z-10" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20">
                     <polygon points="4,4 4,16 8,10" strokeLinecap="round" strokeLinejoin="round" />
                     <polygon points="16,4 16,16 12,10" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
@@ -804,14 +783,15 @@ export default function VideoEditor() {
                 {/* Audio */}
                 <button 
                   onClick={() => setActivePanel('audio')}
-                  className={`w-full h-10 rounded-lg transition-all duration-200 flex items-center justify-center group focus:outline-none ${
+                  className={`group w-full h-10 rounded-xl transition-all duration-300 flex items-center justify-center focus:outline-none relative overflow-hidden ${
                     activePanel === 'audio' 
-                      ? 'text-white bg-slate-600' 
-                      : 'text-slate-300 hover:text-white hover:bg-slate-600'
+                      ? 'text-editor-text-primary bg-editor-interactive-active border border-editor-border-secondary shadow-[0_4px_12px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.2)]' 
+                      : 'text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]'
                   }`}
                   title="Audio"
                 >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+                  <svg className="w-5 h-5 relative z-10" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M9.772 4.28c.56-.144 1.097.246 1.206.814.1.517-.263 1.004-.771 1.14A7 7 0 1 0 19 12.9c.009-.5.4-.945.895-1 .603-.067 1.112.371 1.106.977L21 13c0 .107-.002.213-.006.32a.898.898 0 0 1 0 .164l-.008.122a9 9 0 0 1-9.172 8.392A9 9 0 0 1 9.772 4.28z"/>
                     <path d="M15.93 13.753a4.001 4.001 0 1 1-6.758-3.581A4 4 0 0 1 12 9c.75 0 1.3.16 2 .53 0 0 .15.09.25.17-.1-.35-.228-1.296-.25-1.7a58.75 58.75 0 0 1-.025-2.035V2.96c0-.52.432-.94.965-.94.103 0 .206.016.305.048l4.572 1.689c.446.145.597.23.745.353.148.122.258.27.33.446.073.176.108.342.108.801v1.16c0 .518-.443.94-.975.94a.987.987 0 0 1-.305-.049l-1.379-.447-.151-.05c-.437-.14-.618-.2-.788-.26a5.697 5.697 0 0 1-.514-.207 3.53 3.53 0 0 1-.213-.107c-.098-.05-.237-.124-.521-.263L16 6l.011 7c0 .255-.028.507-.082.753h.001z"/>
                   </svg>
@@ -820,14 +800,15 @@ export default function VideoEditor() {
                 {/* Text */}
                 <button 
                   onClick={() => setActivePanel('text')}
-                  className={`w-full h-10 rounded-lg transition-all duration-200 flex items-center justify-center group focus:outline-none ${
+                  className={`group w-full h-10 rounded-xl transition-all duration-300 flex items-center justify-center focus:outline-none relative overflow-hidden ${
                     activePanel === 'text' 
-                      ? 'text-white bg-slate-600' 
-                      : 'text-slate-300 hover:text-white hover:bg-slate-600'
+                      ? 'text-editor-text-primary bg-editor-interactive-active border border-editor-border-secondary shadow-[0_4px_12px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.2)]' 
+                      : 'text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]'
                   }`}
                   title="Text"
                 >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 16 16">
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+                  <svg className="w-5 h-5 relative z-10" fill="currentColor" viewBox="0 0 16 16">
                     <path d="M5.68412,13v-.72885l.221-.0181c.7641-.05812.947-.1896.98514-.22866.02573-.02668.1572-.202.1572-.99276V4.07755H6.47918A2.45938,2.45938,0,0,0,5.002,4.36909a2.26179,2.26179,0,0,0-.56259,1.35957l-.03811.19626H3.6038L3.70384,3h8.59994l.09242,2.92492h-.78411l-.02144-.09527a2.81746,2.81746,0,0,0-.58832-1.46532c-.14719-.13148-.52305-.28678-1.481-.28678H8.9606v7.12272c0,.67835.13815.8184.16578.83936a2.09154,2.09154,0,0,0,1.00943.21342l.223.0181V13Z"/>
                   </svg>
                 </button>
@@ -835,14 +816,15 @@ export default function VideoEditor() {
                 {/* Effects */}
                 <button 
                   onClick={() => setActivePanel('effects')}
-                  className={`w-full h-10 rounded-lg transition-all duration-200 flex items-center justify-center group focus:outline-none ${
+                  className={`group w-full h-10 rounded-xl transition-all duration-300 flex items-center justify-center focus:outline-none relative overflow-hidden ${
                     activePanel === 'effects' 
-                      ? 'text-white bg-slate-600' 
-                      : 'text-slate-300 hover:text-white hover:bg-slate-600'
+                      ? 'text-editor-text-primary bg-editor-interactive-active border border-editor-border-secondary shadow-[0_4px_12px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.2)]' 
+                      : 'text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]'
                   }`}
                   title="Effects"
                 >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+                  <svg className="w-5 h-5 relative z-10" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M15.199 9.945a2.6 2.6 0 0 1-.79-1.551l-.403-3.083-2.73 1.486a2.6 2.6 0 0 1-1.72.273L6.5 6.5l.57 3.056a2.6 2.6 0 0 1-.273 1.72l-1.486 2.73 3.083.403a2.6 2.6 0 0 1 1.55.79l2.138 2.257 1.336-2.807a2.6 2.6 0 0 1 1.23-1.231l2.808-1.336-2.257-2.137zm.025 5.563l-2.213 4.65a.6.6 0 0 1-.977.155l-3.542-3.739a.6.6 0 0 0-.357-.182l-5.107-.668a.6.6 0 0 1-.449-.881l2.462-4.524a.6.6 0 0 0 .062-.396L4.16 4.86a.6.6 0 0 1 .7-.7l5.063.943a.6.6 0 0 0 .396-.062l4.524-2.462a.6.6 0 0 1 .881.45l.668 5.106a.6.6 0 0 0 .182.357l3.739 3.542a.6.6 0 0 1-.155.977l-4.65 2.213a.6.6 0 0 0-.284.284zm.797 1.927l1.414-1.414 4.243 4.242-1.415 1.415-4.242-4.243z"/>
                   </svg>
                 </button>
@@ -850,14 +832,15 @@ export default function VideoEditor() {
                 {/* Filters */}
                 <button 
                   onClick={() => setActivePanel('filters')}
-                  className={`w-full h-10 rounded-lg transition-all duration-200 flex items-center justify-center group focus:outline-none ${
+                  className={`group w-full h-10 rounded-xl transition-all duration-300 flex items-center justify-center focus:outline-none relative overflow-hidden ${
                     activePanel === 'filters' 
-                      ? 'text-white bg-slate-600' 
-                      : 'text-slate-300 hover:text-white hover:bg-slate-600'
+                      ? 'text-editor-text-primary bg-editor-interactive-active border border-editor-border-secondary shadow-[0_4px_12px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.2)]' 
+                      : 'text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]'
                   }`}
                   title="Filters"
                 >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+                  <svg className="w-5 h-5 relative z-10" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M16,1a6.956,6.956,0,0,0-4,1.264A7,7,0,1,0,5.19,14.407a7,7,0,1,0,13.62,0A7,7,0,0,0,16,1ZM12.881,9.062a6.29,6.29,0,0,0-1.762,0A4.88,4.88,0,0,1,12,5.031a4.88,4.88,0,0,1,.881,4.031Zm-2.387,3.246A4.938,4.938,0,0,1,8.028,13a5.015,5.015,0,0,1,1.9-1.533A7,7,0,0,0,10.494,12.308Zm3.58-.844A5.015,5.015,0,0,1,15.972,13a4.938,4.938,0,0,1-2.466-.689A7,7,0,0,0,14.074,11.464ZM3,8A5.006,5.006,0,0,1,8,3a4.948,4.948,0,0,1,2.494.692,6.911,6.911,0,0,0-1.3,5.9,7.037,7.037,0,0,0-3.264,2.943A5,5,0,0,1,3,8Zm14,8a5,5,0,1,1-9.881-1.062A6.839,6.839,0,0,0,12,13.736a6.839,6.839,0,0,0,4.881,1.2A4.959,4.959,0,0,1,17,16Zm1.074-3.464A7.029,7.029,0,0,0,14.81,9.594a6.913,6.913,0,0,0-1.3-5.9A4.948,4.948,0,0,1,16,3a4.992,4.992,0,0,1,2.074,9.536Z"/>
                   </svg>
                 </button>
@@ -867,26 +850,28 @@ export default function VideoEditor() {
           </div>
 
           {/* Right Section - Dynamic Panel */}
-          <div className="flex-1 border border-l-0 border-slate-700 bg-slate-900 rounded-r-lg overflow-hidden flex flex-col h-full min-h-0">
+          <div className="flex-1 bg-editor-bg-glass-primary backdrop-blur-2xl border border-editor-border-tertiary rounded-2xl overflow-hidden flex flex-col h-full min-h-0 shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)] relative">
+            <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-2xl"></div>
             {/* Header */}
-            <div className="px-3 sm:px-4 py-0 border-b border-slate-700 bg-slate-800 flex items-center justify-between min-h-[2.3125rem]">
-              <h3 className="text-sm font-medium text-white capitalize">
+            <div className="px-3 sm:px-4 py-0 border-b border-editor-border-tertiary bg-editor-bg-glass-secondary backdrop-blur-xl flex items-center justify-between min-h-[2.3125rem] relative z-10">
+              <h3 className="text-sm font-medium text-editor-text-primary capitalize">
                 {activePanel === 'audio' ? 'Song Library' : activePanel}
               </h3>
               <div className="flex items-center">
                 {activePanel === 'media' && (
                   <button
                     onClick={() => pickMultipleFiles()}
-                    className="flex items-center gap-1.5 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                    className="group flex items-center gap-1.5 px-3 py-1.5 text-xs bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-secondary text-editor-text-primary rounded-xl hover:bg-editor-interactive-hover hover:border-editor-border-primary transition-all duration-300 hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
                   >
-                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+                    <svg className="w-3 h-3 relative z-10" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
                     </svg>
-                    Add Media
+                    <span className="relative z-10">Add Media</span>
                   </button>
                 )}
                 {activePanel === 'audio' && (
-                  <div className="text-xs text-slate-400">
+                  <div className="text-xs text-editor-text-muted">
                     Royalty-free music
                   </div>
                 )}
@@ -894,7 +879,7 @@ export default function VideoEditor() {
             </div>
             
             {/* Dynamic Panel Content */}
-            <div className="bg-slate-950 flex-1">
+            <div className="bg-editor-bg-canvas flex-1 relative z-10">
               {activePanel === 'media' && (
                 <MediaGrid
                   mediaFiles={mediaFiles}
@@ -930,18 +915,19 @@ export default function VideoEditor() {
         </div>
 
         {/* Center Panel - Video Preview */}
-        <div className="flex-1 flex flex-col overflow-hidden min-h-0 bg-slate-900 min-w-0">
-          <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden flex flex-col h-full min-h-0">
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0 bg-transparent min-w-0 p-2">
+          <div className="bg-editor-bg-glass-primary backdrop-blur-2xl border border-editor-border-tertiary rounded-2xl overflow-hidden flex flex-col h-full min-h-0 shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)] relative">
+            <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-2xl"></div>
             {/* Header */}
-            <div className="px-3 sm:px-4 py-1.5 sm:py-2 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
-              <h3 className="text-sm font-medium text-white">Preview</h3>
-              <div className="text-slate-400">
+            <div className="px-3 sm:px-4 py-1.5 sm:py-2 border-b border-editor-border-tertiary bg-editor-bg-glass-secondary backdrop-blur-xl flex items-center justify-between relative z-10">
+              <h3 className="text-sm font-medium text-editor-text-primary">Preview</h3>
+              <div className="text-editor-text-muted">
                 <Play className="w-4 h-4" fill="currentColor" />
               </div>
             </div>
             
             {/* Content */}
-            <div className="flex-1 flex flex-col overflow-hidden min-h-0 bg-slate-900">
+            <div className="flex-1 flex flex-col overflow-hidden min-h-0 bg-editor-bg-canvas relative z-10">
               {/* Mobile Debug Toggle */}
               <div className="lg:hidden border-b border-slate-700 p-2">
                 <button
@@ -955,23 +941,23 @@ export default function VideoEditor() {
 
               {/* Mobile Debug Panel */}
               {showMobileDebug && (
-                <div className="lg:hidden border-b border-slate-700 p-4 bg-slate-800">
+                <div className="lg:hidden border-b border-editor-border-tertiary p-4 bg-editor-bg-glass-secondary backdrop-blur-xl">
                   <div className="space-y-2 text-xs">
                     <div>
-                      <span className="text-slate-400">File Path:</span>
-                      <div className="text-slate-300 break-all">{filePath || "None"}</div>
+                      <span className="text-editor-text-tertiary">File Path:</span>
+                      <div className="text-editor-text-secondary break-all">{filePath || "None"}</div>
                     </div>
                     <div>
-                      <span className="text-slate-400">Duration:</span>
-                      <div className="text-slate-300">{probe ? `${probe.duration}s` : "None"}</div>
+                      <span className="text-editor-text-tertiary">Duration:</span>
+                      <div className="text-editor-text-secondary">{probe ? `${probe.duration}s` : "None"}</div>
                     </div>
                     <div>
-                      <span className="text-slate-400">Cuts:</span>
-                      <div className="text-slate-300">Accepted: {acceptedCuts.length}, Preview: {previewCuts.length}</div>
+                      <span className="text-editor-text-tertiary">Cuts:</span>
+                      <div className="text-editor-text-secondary">Accepted: {acceptedCuts.length}, Preview: {previewCuts.length}</div>
                     </div>
                     <div className="mt-2">
-                      <span className="text-slate-400">Recent Logs:</span>
-                      <pre className="text-slate-300 whitespace-pre-wrap text-xs max-h-32 overflow-y-auto">
+                      <span className="text-editor-text-tertiary">Recent Logs:</span>
+                      <pre className="text-editor-text-secondary whitespace-pre-wrap text-xs max-h-32 overflow-y-auto">
                         {debug.split('\n').slice(-5).join('\n') || "No recent logs"}
                       </pre>
                     </div>
@@ -996,27 +982,25 @@ export default function VideoEditor() {
         </div>
 
         {/* Right Panel - Tools & Chat */}
-        <div className="hidden lg:block w-[26rem] xl:w-[30rem] border border-slate-700 bg-slate-800 rounded-lg overflow-hidden flex flex-col h-full min-h-0">
-          <Sidebar
-            debug={debug}
-            filePath={filePath}
-            previewUrl={previewUrl}
-            probe={probe}
-            peaks={peaks}
-            acceptedCuts={acceptedCuts}
-            previewCuts={previewCuts}
-            onExecuteCommand={handleExecuteCommand}
-            onAcceptPlan={acceptPlan}
-            onRejectPlan={rejectPlan}
-            onApplyEditOperations={applyEditOperations}
-            agentContext={agentContext}
-          />
-          
+        <div className="hidden lg:block w-[26rem] xl:w-[30rem] flex h-full min-h-0 gap-3 p-2">
+          <div className="flex-1 bg-editor-bg-glass-primary backdrop-blur-2xl border border-editor-border-tertiary rounded-2xl overflow-hidden flex flex-col h-full min-h-0 shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)] relative">
+            <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-2xl"></div>
+            <Sidebar
+              previewUrl={previewUrl}
+              acceptedCuts={acceptedCuts}
+              previewCuts={previewCuts}
+              onExecuteCommand={handleExecuteCommand}
+              onAcceptPlan={acceptPlan}
+              onRejectPlan={rejectPlan}
+              agentContext={agentContext}
+            />
+          </div>
         </div>
       </div>
 
       {/* Timeline Section - Always Visible */}
-      <div className="flex-shrink-0 border-t border-editor-border-secondary bg-editor-bg-primary">
+      <div className="flex-shrink-0 border-t border-editor-border-tertiary bg-editor-bg-glass-overlay backdrop-blur-2xl relative">
+        <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent"></div>
         <ErrorBoundary>
           {useAdvancedTimeline ? (
             <AdvancedTimeline

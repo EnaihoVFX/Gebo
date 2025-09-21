@@ -20,7 +20,7 @@ interface ChatProps {
 }
 
 export function Chat({
-  chatId,
+  chatId, // Currently unused but part of interface for future features
   messages,
   onUpdateMessages,
   onExecuteCommand,
@@ -40,6 +40,9 @@ export function Chat({
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const currentMessagesRef = useRef<ChatMessageType[]>(messages || []);
+
+  // Suppress unused parameter warning - chatId is part of interface for future features
+  void chatId;
 
   // Update the ref whenever messages change
   useEffect(() => {
@@ -352,7 +355,7 @@ export function Chat({
   // Input component
   const InputArea = () => (
     <div 
-      className="p-2 sm:p-3 lg:p-4 flex gap-2"
+      className="p-3 sm:p-4 lg:p-5 flex gap-3 bg-editor-bg-glass-primary backdrop-blur-2xl border-t border-editor-border-tertiary"
       onClick={(e) => {
         // Only focus if clicking on the container itself, not on child elements
         if (e.target === e.currentTarget && inputRef.current) {
@@ -360,57 +363,70 @@ export function Chat({
         }
       }}
     >
-      <textarea
-        key="chat-textarea" // Stable key to prevent recreation
-        ref={inputRef}
-        value={inputValue}
-        onChange={handleInputChange}
-        onKeyDown={handleKeyDown}
-        onFocus={(e) => {
-          e.stopPropagation();
-          console.log('Textarea focused');
-        }}
-        onBlur={(e) => {
-          e.stopPropagation();
-          console.log('Textarea blurred - relatedTarget:', e.relatedTarget);
-        }}
-        placeholder="Type a command..."
-        className="flex-1 px-3 py-2 text-sm bg-editor-bg-secondary border border-editor-border-secondary rounded text-editor-text-secondary placeholder-editor-text-muted focus:outline-none focus:border-editor-border-primary resize-none min-h-[40px] max-h-[120px]"
-        rows={1}
-        disabled={isLoading}
-        autoFocus={false}
-      />
+      <div className="flex-1 relative">
+        <textarea
+          key="chat-textarea" // Stable key to prevent recreation
+          ref={inputRef}
+          value={inputValue}
+          onChange={handleInputChange}
+          onKeyDown={handleKeyDown}
+          onFocus={(e) => {
+            e.stopPropagation();
+            console.log('Textarea focused');
+          }}
+          onBlur={(e) => {
+            e.stopPropagation();
+            console.log('Textarea blurred - relatedTarget:', e.relatedTarget);
+          }}
+          placeholder="Type a command..."
+          className="w-full px-4 py-3 text-sm bg-editor-bg-glass-secondary backdrop-blur-xl border border-editor-border-secondary rounded-xl text-editor-text-primary placeholder-editor-text-muted focus:outline-none focus:border-editor-border-accent focus:ring-2 focus:ring-editor-border-accent/20 resize-none min-h-[48px] max-h-[120px] transition-all duration-200 shadow-[0_2px_8px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.1)]"
+          rows={1}
+          disabled={isLoading}
+          autoFocus={false}
+        />
+        <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-xl pointer-events-none opacity-0 focus-within:opacity-100 transition-opacity duration-200"></div>
+      </div>
       <button
         onClick={(e) => {
           e.stopPropagation();
           handleSendMessage();
         }}
         disabled={!inputValue.trim() || isLoading}
-        className="px-3 py-2 bg-editor-status-info hover:bg-blue-700 disabled:bg-editor-bg-tertiary text-white rounded transition-colors flex items-center justify-center"
+        className="group px-4 py-3 bg-editor-bg-glass-secondary backdrop-blur-xl border border-editor-border-secondary text-editor-text-primary rounded-xl hover:bg-editor-interactive-hover hover:border-editor-border-accent disabled:bg-editor-interactive-disabled disabled:opacity-50 transition-all duration-200 hover:scale-105 flex items-center justify-center shadow-[0_4px_16px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden min-w-[48px]"
       >
-        {isLoading ? "..." : <Send className="w-4 h-4" />}
+        <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-xl"></div>
+        {isLoading ? (
+          <div className="relative z-10 flex gap-1">
+            <div className="w-1.5 h-1.5 bg-editor-text-primary rounded-full animate-bounce"></div>
+            <div className="w-1.5 h-1.5 bg-editor-text-primary rounded-full animate-bounce" style={{ animationDelay: "0.1s" }}></div>
+            <div className="w-1.5 h-1.5 bg-editor-text-primary rounded-full animate-bounce" style={{ animationDelay: "0.2s" }}></div>
+          </div>
+        ) : (
+          <Send className="w-4 h-4 relative z-10" />
+        )}
       </button>
     </div>
   );
 
   return (
-    <div className="flex flex-col h-full min-h-0 chat-container">
+    <div className="flex flex-col h-full min-h-0 max-h-full chat-container">
       {/* Input at top for new chats */}
       {isNewChat && <InputArea />}
       
       {/* Sticky Header - Fixed height to prevent layout shift */}
-      <div className="sticky top-0 z-10 bg-gradient-to-b from-transparent to-slate-900 backdrop-blur-sm px-3 py-2 flex items-center transition-all duration-200" style={{ height: activePrompt ? '64px' : '0px', opacity: activePrompt ? 1 : 0, pointerEvents: activePrompt ? 'auto' : 'none', overflow: 'hidden' }}>
+      <div className="sticky top-0 z-10 bg-gradient-to-b from-editor-bg-glass-primary/80 to-editor-bg-glass-primary backdrop-blur-2xl px-4 py-3 flex items-center transition-all duration-200 flex-shrink-0" style={{ height: activePrompt ? '72px' : '0px', opacity: activePrompt ? 1 : 0, pointerEvents: activePrompt ? 'auto' : 'none', overflow: 'hidden' }}>
         {activePrompt && (
-          <div className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg w-full">
-            <div className="text-xs whitespace-pre-wrap leading-relaxed text-left text-slate-200 break-words line-clamp-2">
+          <div className="px-4 py-2.5 bg-editor-bg-glass-secondary backdrop-blur-xl border border-editor-border-secondary rounded-xl w-full shadow-[0_4px_20px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.15)] relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-br from-white/8 to-transparent pointer-events-none"></div>
+            <div className="text-sm whitespace-pre-wrap leading-relaxed text-left text-editor-text-primary break-words line-clamp-2 relative z-10 font-medium">
               {activePrompt.content}
             </div>
           </div>
         )}
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4 space-y-4 relative" ref={messagesContainerRef}>
+      {/* Messages - Flex-1 to take remaining space */}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-5 lg:p-6 space-y-5 relative bg-editor-bg-canvas min-h-0" ref={messagesContainerRef}>
         {Array.isArray(messages) && messages.length > 0 && messages.map((message) => (
           <div
             key={message.id}
@@ -421,7 +437,7 @@ export function Chat({
                 messageRefs.current.delete(message.id);
               }
             }}
-            className="transition-opacity duration-300 opacity-100"
+            className="transition-all duration-300 opacity-100"
           >
             <ChatMessage message={message} />
           </div>
@@ -429,13 +445,14 @@ export function Chat({
         
         {/* Only show loading indicator for legacy (non-AI agent) mode */}
         {isLoading && !agentContext && (
-          <div className="flex items-center gap-2 text-editor-text-tertiary">
-            <div className="flex gap-1">
-              <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce"></div>
-              <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: "0.1s" }}></div>
-              <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }}></div>
+          <div className="flex items-center justify-center gap-3 p-4 bg-editor-bg-glass-secondary backdrop-blur-xl border border-editor-border-tertiary rounded-xl shadow-[0_2px_8px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
+            <div className="flex gap-1.5 relative z-10">
+              <div className="w-2 h-2 bg-editor-status-info rounded-full animate-bounce"></div>
+              <div className="w-2 h-2 bg-editor-status-info rounded-full animate-bounce" style={{ animationDelay: "0.1s" }}></div>
+              <div className="w-2 h-2 bg-editor-status-info rounded-full animate-bounce" style={{ animationDelay: "0.2s" }}></div>
             </div>
-            <span className="text-xs">Agent is processing...</span>
+            <span className="text-sm text-editor-text-secondary font-medium relative z-10">Processing...</span>
           </div>
         )}
         

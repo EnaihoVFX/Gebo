@@ -50,14 +50,14 @@ export function ApiKeyManager({ isOpen, onClose, onApiKeySet }: ApiKeyManagerPro
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 w-full max-w-md mx-4">
+      <div className="bg-editor-bg-glass-primary backdrop-blur-2xl border border-editor-border-tertiary rounded-xl p-6 w-full max-w-md mx-4 shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-blue-600/20 rounded-lg flex items-center justify-center">
-            <Key className="w-5 h-5 text-blue-400" />
+          <div className="w-10 h-10 bg-editor-bg-glass-tertiary backdrop-blur-xl rounded-lg flex items-center justify-center border border-editor-border-tertiary">
+            <Key className="w-5 h-5 text-editor-status-info" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-white">Gemini API Key</h3>
-            <p className="text-sm text-slate-400">Configure your Google Gemini API key</p>
+            <h3 className="text-lg font-semibold text-editor-text-primary">Gemini API Key</h3>
+            <p className="text-sm text-editor-text-tertiary">Configure your Google Gemini API key</p>
           </div>
         </div>
 
@@ -73,7 +73,7 @@ export function ApiKeyManager({ isOpen, onClose, onApiKeySet }: ApiKeyManagerPro
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="Enter your Gemini API key..."
-                className="w-full px-3 py-2 pr-10 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                className="w-full px-3 py-2 pr-10 bg-editor-bg-canvas border border-editor-border-tertiary rounded-lg text-editor-text-primary placeholder-editor-text-muted focus:outline-none focus:border-editor-border-accent focus:ring-1 focus:ring-editor-border-accent"
                 disabled={isLoading}
               />
               <button
@@ -116,7 +116,7 @@ export function ApiKeyManager({ isOpen, onClose, onApiKeySet }: ApiKeyManagerPro
             <button
               type="submit"
               disabled={!apiKey.trim() || isLoading}
-              className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2 bg-editor-bg-glass-tertiary backdrop-blur-xl hover:bg-editor-interactive-hover disabled:bg-editor-interactive-disabled text-editor-text-primary rounded-lg transition-colors flex items-center justify-center gap-2 border border-editor-border-tertiary hover:border-editor-border-secondary"
             >
               {isLoading ? (
                 <>
@@ -130,10 +130,10 @@ export function ApiKeyManager({ isOpen, onClose, onApiKeySet }: ApiKeyManagerPro
           </div>
         </form>
 
-        <div className="mt-4 p-3 bg-slate-900/50 rounded-lg">
-          <h4 className="text-sm font-medium text-slate-300 mb-2">How to get your API key:</h4>
-          <ol className="text-xs text-slate-400 space-y-1 list-decimal list-inside">
-            <li>Go to <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Google AI Studio</a></li>
+        <div className="mt-4 p-3 bg-editor-bg-glass-tertiary backdrop-blur-xl rounded-lg border border-editor-border-tertiary">
+          <h4 className="text-sm font-medium text-editor-text-secondary mb-2">How to get your API key:</h4>
+          <ol className="text-xs text-editor-text-tertiary space-y-1 list-decimal list-inside">
+            <li>Go to <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-editor-status-info hover:underline">Google AI Studio</a></li>
             <li>Sign in with your Google account</li>
             <li>Click "Create API Key"</li>
             <li>Copy the generated key and paste it here</li>

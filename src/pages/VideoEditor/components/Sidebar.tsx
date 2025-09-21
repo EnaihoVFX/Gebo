@@ -11,11 +11,7 @@ import { Chat } from "./Chat";
 import type { Range, ChatSession, ChatMessage, AgentContext } from "../../../types";
 
 interface SidebarProps {
-  debug: string;
-  filePath: string;
   previewUrl: string;
-  probe: any;
-  peaks: number[];
   acceptedCuts: Range[];
   previewCuts: Range[];
   onExecuteCommand: (command: string) => void;
@@ -25,11 +21,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({
-  debug,
-  filePath,
   previewUrl,
-  probe,
-  peaks,
   acceptedCuts,
   previewCuts,
   onExecuteCommand,
@@ -156,9 +148,10 @@ export function Sidebar({
     setCanScrollLeft(canScrollLeft);
     setCanScrollRight(canScrollRight);
     
-    // Always show fades when there's overflow, regardless of scroll position
-    setShowLeftFade(hasOverflow);
-    setShowRightFade(hasOverflow);
+    // Show left fade when there's content scrolled out of view on the left
+    // Show right fade when there's content scrolled out of view on the right
+    setShowLeftFade(hasOverflow && canScrollLeft);
+    setShowRightFade(hasOverflow && canScrollRight);
   }, []);
 
   // Scroll functions - Allow scrolling beyond fade areas
@@ -189,47 +182,49 @@ export function Sidebar({
   }, [checkScrollPosition, chatSessions.length]);
 
   return (
-    <div className={`${isCollapsed ? 'w-12' : 'w-full'} bg-slate-800 rounded-lg flex flex-col transition-all duration-300 h-full min-h-0 overflow-hidden`}>
+    <div className={`${isCollapsed ? 'w-12' : 'w-full'} bg-transparent flex flex-col transition-all duration-300 h-full min-h-0 overflow-hidden relative z-10`}>
       {!isCollapsed ? (
         <>
           {/* Header - Single Row with Tabs and Buttons */}
-          <div className="border-b border-slate-700 bg-slate-800 px-3 sm:px-4 py-1 sm:py-1.5 flex items-center gap-2 relative min-w-0">
+          <div className="border-b border-editor-border-tertiary bg-editor-bg-glass-secondary backdrop-blur-xl px-3 sm:px-4 py-1 sm:py-1.5 flex items-center gap-2 relative min-w-0">
               {/* Left Scroll Button */}
               <div className={`transition-all duration-200 flex-shrink-0 ${canScrollLeft ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                 <button
                   onClick={scrollLeft}
-                  className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors rounded focus:outline-none"
+                  className="group w-6 h-6 flex items-center justify-center text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
                   title="Scroll left"
                 >
-                  <ChevronLeft className="w-3 h-3" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
+                  <ChevronLeft className="w-3 h-3 relative z-10" />
                 </button>
               </div>
               
               {/* Chat Tabs Container with Fade Effects */}
               <div className="flex-1 relative min-w-0">
-                {/* Left Fade - Always visible when there's overflow */}
-                <div className={`absolute left-0 top-0 bottom-0 w-6 bg-gradient-to-r from-slate-800 via-slate-800/80 to-transparent z-10 pointer-events-none transition-opacity duration-300 ${showLeftFade ? 'opacity-100' : 'opacity-0'}`} />
+                {/* Left Fade - Overlay that masks content scrolled out of view */}
+                <div className={`absolute left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-editor-bg-glass-secondary via-editor-bg-glass-secondary/80 to-transparent z-20 pointer-events-none transition-opacity duration-300 ${showLeftFade ? 'opacity-100' : 'opacity-0'}`} />
                 
-                {/* Right Fade - Always visible when there's overflow */}
-                <div className={`absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-slate-800 via-slate-800/80 to-transparent z-10 pointer-events-none transition-opacity duration-300 ${showRightFade ? 'opacity-100' : 'opacity-0'}`} />
+                {/* Right Fade - Overlay that masks content scrolled out of view */}
+                <div className={`absolute right-0 top-0 bottom-0 w-4 bg-gradient-to-l from-editor-bg-glass-secondary via-editor-bg-glass-secondary/80 to-transparent z-20 pointer-events-none transition-opacity duration-300 ${showRightFade ? 'opacity-100' : 'opacity-0'}`} />
                 
                 {/* Tabs */}
                 <div 
                   ref={tabsContainerRef}
-                  className="flex items-center gap-1 overflow-x-auto hide-scrollbar px-6"
+                  className="flex items-center gap-1 overflow-x-auto hide-scrollbar px-4"
                 >
                   {chatSessions.map((chat) => (
                     <button
                       key={chat.id}
                       onClick={() => setActiveChatId(chat.id)}
-                      className={`flex items-center gap-1 px-2 py-1 text-xs rounded whitespace-nowrap transition-all duration-200 flex-shrink-0 focus:outline-none ${
+                      className={`group flex items-center gap-1.5 px-3 py-2 text-xs rounded-xl whitespace-nowrap transition-all duration-200 flex-shrink-0 focus:outline-none relative overflow-hidden ${
                         chat.id === activeChatId
-                          ? "bg-slate-600 text-white"
-                          : "text-slate-300 hover:text-white bg-transparent"
+                          ? "text-editor-text-primary bg-editor-interactive-active border border-editor-border-secondary shadow-[0_4px_12px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.2)]"
+                          : "text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]"
                       }`}
                       title={chat.name}
                     >
-                      <span className="flex-1 text-left">
+                      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-xl"></div>
+                      <span className="flex-1 text-left relative z-10">
                         {chat.name}
                       </span>
                       {chatSessions.length > 1 && (
@@ -238,10 +233,11 @@ export function Sidebar({
                             e.stopPropagation();
                             closeChat(chat.id);
                           }}
-                          className="w-3 h-3 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-500 rounded transition-colors focus:outline-none"
+                          className="group/close w-4 h-4 flex items-center justify-center text-editor-text-muted hover:text-editor-text-primary bg-editor-bg-glass-secondary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary transition-all duration-200 rounded-lg focus:outline-none shadow-[0_1px_4px_rgba(0,0,0,0.1),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
                           title="Close chat"
                         >
-                          <X className="w-2 h-2" />
+                          <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover/close:opacity-100 transition-opacity duration-200 rounded-lg"></div>
+                          <X className="w-2.5 h-2.5 relative z-10" />
                         </button>
                       )}
                     </button>
@@ -253,10 +249,11 @@ export function Sidebar({
               <div className={`transition-all duration-200 flex-shrink-0 ${canScrollRight ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                 <button
                   onClick={scrollRight}
-                  className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors rounded focus:outline-none"
+                  className="group w-6 h-6 flex items-center justify-center text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
                   title="Scroll right"
                 >
-                  <ChevronRight className="w-3 h-3" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
+                  <ChevronRight className="w-3 h-3 relative z-10" />
                 </button>
               </div>
               
@@ -264,25 +261,29 @@ export function Sidebar({
               <div className="flex items-center gap-1 flex-shrink-0 w-24">
                 <button
                   onClick={createNewChat}
-                  className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors rounded focus:outline-none"
+                  className="group w-6 h-6 flex items-center justify-center text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
                   title="New Chat"
                 >
-                  <Plus className="w-3 h-3" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
+                  <Plus className="w-3 h-3 relative z-10" />
                 </button>
-                <button className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors rounded focus:outline-none" title="History">
-                  <History className="w-3 h-3" />
+                <button className="group w-6 h-6 flex items-center justify-center text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden" title="History">
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
+                  <History className="w-3 h-3 relative z-10" />
                 </button>
-                <button className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors rounded focus:outline-none" title="More Options">
-                  <MoreHorizontal className="w-3 h-3" />
+                <button className="group w-6 h-6 flex items-center justify-center text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden" title="More Options">
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
+                  <MoreHorizontal className="w-3 h-3 relative z-10" />
                 </button>
-                <button className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors rounded focus:outline-none" title="Close">
-                  <X className="w-3 h-3" />
+                <button className="group w-6 h-6 flex items-center justify-center text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden" title="Close">
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
+                  <X className="w-3 h-3 relative z-10" />
                 </button>
               </div>
           </div>
           
           {/* Chat Content */}
-          <div className="flex-1 overflow-hidden flex flex-col bg-slate-900 pt-0.5">
+          <div className="flex-1 overflow-hidden flex flex-col bg-editor-bg-canvas relative z-10 min-h-0">
             <Chat
               chatId={activeChat.id}
               messages={activeChat.messages}

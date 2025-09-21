@@ -16,10 +16,10 @@ export function Button({
   const baseClasses = 'inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none';
   
   const variants = {
-    default: 'bg-blue-600 text-white hover:bg-blue-700',
-    outline: 'border border-gray-300 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700',
-    ghost: 'text-gray-900 hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-800',
-    secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700',
+    default: 'bg-editor-bg-glass-tertiary backdrop-blur-xl text-editor-text-primary hover:bg-editor-interactive-hover border border-editor-border-tertiary hover:border-editor-border-secondary',
+    outline: 'border border-editor-border-tertiary bg-editor-bg-glass-secondary backdrop-blur-xl text-editor-text-primary hover:bg-editor-interactive-hover hover:border-editor-border-secondary',
+    ghost: 'text-editor-text-primary hover:bg-editor-interactive-hover',
+    secondary: 'bg-editor-bg-glass-secondary backdrop-blur-xl text-editor-text-secondary hover:bg-editor-interactive-hover border border-editor-border-tertiary',
   };
   
   const sizes = {

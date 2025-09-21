@@ -32,7 +32,7 @@ export default function LoadingScreen({ onComplete, projectTitle }: LoadingScree
   }, [onComplete]);
 
   return (
-    <div className="fixed inset-0 bg-zinc-950 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-editor-bg-primary flex items-center justify-center z-50">
       <div className="text-center max-w-sm mx-auto px-6">
         {/* Logo */}
         <div className="mb-8">

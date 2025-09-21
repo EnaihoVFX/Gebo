@@ -87,19 +87,39 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
 
   return (
     <div className={`${large ? "w-full h-full flex flex-col" : "max-w-2xl w-full"}`}>
-      <div className={`${large ? "flex flex-col h-full" : "bg-slate-800 rounded-lg border border-slate-700 overflow-hidden"}`}>
+      <div 
+        className={`${large ? "flex flex-col h-full" : "relative overflow-hidden rounded-2xl"}`}
+        style={large ? {} : {
+          background: 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)',
+          backdropFilter: 'blur(25px) saturate(1.8)',
+          border: '1px solid rgba(255, 255, 255, 0.15)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.15)'
+        }}>
         {!large && (
-          <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-700 bg-slate-800 flex-shrink-0">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-white">Player</h3>
-              <div className="text-slate-400">
-                <Play className="w-4 h-4" fill="currentColor" />
+          <>
+            {/* Glassmorphic overlay for depth */}
+            <div className="absolute inset-0 bg-gradient-to-br from-white/3 to-transparent opacity-100 pointer-events-none rounded-2xl"></div>
+            
+            <div 
+              className="px-3 sm:px-4 py-2 sm:py-3 border-b border-white/10 flex-shrink-0 relative z-10"
+              style={{
+                background: 'linear-gradient(135deg, rgba(39, 39, 42, 0.7) 0%, rgba(63, 63, 70, 0.65) 25%, rgba(39, 39, 42, 0.6) 50%, rgba(24, 24, 27, 0.55) 75%, rgba(9, 9, 11, 0.5) 100%)',
+                backdropFilter: 'blur(25px) saturate(1.8)'
+              }}>
+              <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-t-2xl pointer-events-none"></div>
+              <div className="flex items-center justify-between relative z-10">
+                <h3 className="text-sm font-medium text-white/90">Player</h3>
+                <div className="text-white/50">
+                  <Play className="w-4 h-4" fill="currentColor" />
+                </div>
               </div>
             </div>
-          </div>
+          </>
         )}
         
-        <div className={`${large ? "p-0 flex-1 flex flex-col" : "p-2 sm:p-3 lg:p-4 bg-slate-900"}`}>
+        <div 
+          className={`${large ? "p-0 flex-1 flex flex-col" : "p-2 sm:p-3 lg:p-4 relative z-10"}`}
+          style={large ? {} : { background: 'rgba(39, 39, 42, 0.25)' }}>
           {src ? (
             <>
               <video
@@ -114,7 +134,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
                   aspectRatio: "16 / 9",
                   maxWidth: large ? "100%" : "320px",
                   maxHeight: large ? "100%" : "180px",
-                  border: "1px solid #334155"
+                  border: "1px solid rgba(255, 255, 255, 0.10)"
                 }}
                 onLoadStart={() => {
                   console.log(`Video load started: ${src}`);
@@ -143,32 +163,83 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
                 <p>Your browser does not support the video tag.</p>
               </video>
               
-              {/* Custom Video Controls */}
-              <div className={`${large ? "m-2 flex-shrink-0" : "mt-3"} flex items-center justify-center gap-2`}>
+              {/* Custom Video Controls with enhanced glassmorphic styling */}
+              <div className={`${large ? "m-2 flex-shrink-0" : "mt-3"} flex items-center justify-center gap-3`}>
                 <button
                   onClick={handleSeekBack}
-                  className="p-2 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                  className="group p-3 text-white/80 hover:text-white rounded-2xl transition-all duration-300 hover:scale-105 relative overflow-hidden"
                   title="Seek Backward 1s"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)',
+                    backdropFilter: 'blur(20px) saturate(1.6)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(39, 39, 42, 0.7) 0%, rgba(63, 63, 70, 0.65) 25%, rgba(39, 39, 42, 0.6) 50%, rgba(24, 24, 27, 0.55) 75%, rgba(9, 9, 11, 0.5) 100%)';
+                    e.currentTarget.style.transform = 'translateY(-1px) scale(1.05)';
+                    e.currentTarget.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)';
+                    e.currentTarget.style.transform = 'translateY(0px) scale(1)';
+                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
+                  }}
                 >
-                  <SkipBack className="w-4 h-4" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
+                  <SkipBack className="w-5 h-5 relative z-10" />
                 </button>
                 <button
                   onClick={handleTogglePlay}
-                  className="p-2 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                  className="group p-4 text-white rounded-2xl transition-all duration-300 hover:scale-105 relative overflow-hidden"
                   title={isPlaying ? "Pause" : "Play"}
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)',
+                    backdropFilter: 'blur(25px) saturate(1.8)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    boxShadow: '0 6px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(39, 39, 42, 0.7) 0%, rgba(63, 63, 70, 0.65) 25%, rgba(39, 39, 42, 0.6) 50%, rgba(24, 24, 27, 0.55) 75%, rgba(9, 9, 11, 0.5) 100%)';
+                    e.currentTarget.style.transform = 'translateY(-1px) scale(1.05)';
+                    e.currentTarget.style.boxShadow = '0 12px 48px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)';
+                    e.currentTarget.style.transform = 'translateY(0px) scale(1)';
+                    e.currentTarget.style.boxShadow = '0 6px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)';
+                  }}
                 >
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
                   {isPlaying ? (
-                    <Pause className="w-4 h-4" />
+                    <Pause className="w-6 h-6 relative z-10" />
                   ) : (
-                    <Play className="w-4 h-4" />
+                    <Play className="w-6 h-6 relative z-10 ml-0.5" />
                   )}
                 </button>
                 <button
                   onClick={handleSeekForward}
-                  className="p-2 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                  className="group p-3 text-white/80 hover:text-white rounded-2xl transition-all duration-300 hover:scale-105 relative overflow-hidden"
                   title="Seek Forward 1s"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)',
+                    backdropFilter: 'blur(20px) saturate(1.6)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(39, 39, 42, 0.7) 0%, rgba(63, 63, 70, 0.65) 25%, rgba(39, 39, 42, 0.6) 50%, rgba(24, 24, 27, 0.55) 75%, rgba(9, 9, 11, 0.5) 100%)';
+                    e.currentTarget.style.transform = 'translateY(-1px) scale(1.05)';
+                    e.currentTarget.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)';
+                    e.currentTarget.style.transform = 'translateY(0px) scale(1.05)';
+                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
+                  }}
                 >
-                  <SkipForward className="w-4 h-4" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
+                  <SkipForward className="w-5 h-5 relative z-10" />
                 </button>
               </div>
             </>
@@ -181,32 +252,32 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
                   aspectRatio: "16 / 9",
                   maxWidth: large ? "100%" : "320px",
                   maxHeight: large ? "100%" : "180px",
-                  border: "1px solid #334155"
+                  border: "1px solid rgba(255, 255, 255, 0.10)"
                 }}
               />
               
               {/* Disabled Video Controls */}
-              <div className={`${large ? "m-2 flex-shrink-0" : "mt-3"} flex items-center justify-center gap-2`}>
+              <div className={`${large ? "m-2 flex-shrink-0" : "mt-3"} flex items-center justify-center gap-3`}>
                 <button
                   disabled
-                  className="p-2 text-slate-600 rounded-lg transition-colors cursor-not-allowed"
+                  className="p-3 text-editor-text-muted rounded-2xl transition-all duration-300 cursor-not-allowed bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] opacity-50"
                   title="No video loaded"
                 >
-                  <SkipBack className="w-4 h-4" />
+                  <SkipBack className="w-5 h-5" />
                 </button>
                 <button
                   disabled
-                  className="p-2 text-slate-600 rounded-lg transition-colors cursor-not-allowed"
+                  className="p-4 text-editor-text-muted rounded-2xl transition-all duration-300 cursor-not-allowed bg-editor-bg-glass-secondary backdrop-blur-xl border border-editor-border-tertiary shadow-[0_4px_16px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.1)] opacity-50"
                   title="No video loaded"
                 >
-                  <Play className="w-4 h-4" />
+                  <Play className="w-6 h-6 ml-0.5" />
                 </button>
                 <button
                   disabled
-                  className="p-2 text-slate-600 rounded-lg transition-colors cursor-not-allowed"
+                  className="p-3 text-editor-text-muted rounded-2xl transition-all duration-300 cursor-not-allowed bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] opacity-50"
                   title="No video loaded"
                 >
-                  <SkipForward className="w-4 h-4" />
+                  <SkipForward className="w-5 h-5" />
                 </button>
               </div>
             </>

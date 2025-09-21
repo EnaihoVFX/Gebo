@@ -180,18 +180,32 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     const container = containerRef.current;
     if (!container) return;
 
+    let timeoutId: NodeJS.Timeout;
+    
     const updateSize = () => {
       const rect = container.getBoundingClientRect();
-      setContainerSize({ width: rect.width, height: rect.height });
+      const newWidth = rect.width;
+      const newHeight = rect.height;
+      
+      // Only update if the size actually changed significantly (more than 10px)
+      if (Math.abs(newWidth - containerSize.width) > 10 || Math.abs(newHeight - containerSize.height) > 10) {
+        setContainerSize({ width: newWidth, height: newHeight });
+      }
+    };
+
+    const debouncedUpdateSize = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(updateSize, 150); // Debounce by 150ms
     };
 
     // Initial size
     updateSize();
 
-    const resizeObserver = new ResizeObserver(updateSize);
+    const resizeObserver = new ResizeObserver(debouncedUpdateSize);
     resizeObserver.observe(container);
 
     return () => {
+      clearTimeout(timeoutId);
       resizeObserver.disconnect();
     };
   }, []);
@@ -675,17 +689,20 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     }
 
     const dpr = window.devicePixelRatio || 1;
+    // Set canvas buffer size to match CSS size for consistent rendering
     canvas.width = timelineWidth * dpr;
     canvas.height = timelineHeight * dpr;
     canvas.style.width = timelineWidth + "px";
     canvas.style.height = timelineHeight + "px";
+    canvas.style.maxWidth = "100%";
+    canvas.style.display = "block";
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Clear canvas
-    ctx.fillStyle = "#0a0a0a"; // editor.timeline.canvas equivalent
+    // Clear canvas with glassmorphic background
+    ctx.fillStyle = "rgba(39, 39, 42, 0.35)"; // editor-bg-glass-primary - neutral glassmorphic background
     ctx.fillRect(0, 0, timelineWidth, timelineHeight);
 
     // Calculate visible area based on zoom and pan (for reference)
@@ -699,27 +716,27 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     
     
     
-     // Draw enhanced time ruler at the top with gradient background
-     // Create gradient background for better visual appeal
+     // Draw enhanced time ruler at the top with glassmorphic gradient background
+     // Create glassmorphic gradient background
      const gradient = ctx.createLinearGradient(0, 0, 0, timeRulerHeight);
-     gradient.addColorStop(0, "rgba(30, 30, 30, 0.4)"); // Dark gradient top
-     gradient.addColorStop(1, "rgba(20, 20, 20, 0.2)"); // Dark gradient bottom
+     gradient.addColorStop(0, "rgba(39, 39, 42, 0.35)"); // editor-bg-glass-primary
+     gradient.addColorStop(1, "rgba(39, 39, 42, 0.25)"); // editor-bg-glass-secondary
      ctx.fillStyle = gradient;
      ctx.fillRect(0, 0, timelineWidth, timeRulerHeight);
      
-     // Add enhanced border with better styling
-     ctx.strokeStyle = "rgba(75, 85, 99, 0.4)";
+     // Add glassmorphic border with white/opacity
+     ctx.strokeStyle = "rgba(255, 255, 255, 0.10)"; // editor-border-tertiary
      ctx.lineWidth = 1;
      ctx.strokeRect(0, 0, timelineWidth, timeRulerHeight);
      
-     // Add subtle inner highlight for depth
-     ctx.strokeStyle = "rgba(107, 114, 128, 0.2)";
+     // Add subtle inner highlight for glassmorphic depth
+     ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
      ctx.lineWidth = 0.5;
      ctx.strokeRect(0.5, 0.5, timelineWidth - 1, timeRulerHeight - 1);
     
-    ctx.strokeStyle = "#404040"; // editor-border-secondary
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)"; // editor-border-secondary
     ctx.lineWidth = 1;
-    ctx.fillStyle = "#888"; // editor-text-muted
+    ctx.fillStyle = "rgba(255, 255, 255, 0.50)"; // editor-text-tertiary
     ctx.font = "10px monospace";
     
     // Calculate time interval based on zoom level for better readability
@@ -992,11 +1009,11 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       const y = timeRulerHeight + Math.max(0, (thumbnailAreaHeight - thumbHeight) / 2);
       
       // Draw thumbnail container background
-      ctx.fillStyle = "#1e293b"; // slate-800
+      ctx.fillStyle = "rgba(39, 39, 42, 0.25)"; // editor-bg-glass-secondary
       ctx.fillRect(0, timeRulerHeight, timelineWidth, thumbnailAreaHeight);
       
       // Draw thumbnail container border
-      ctx.strokeStyle = "#334155"; // slate-700
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.10)"; // editor-border-tertiary
       ctx.lineWidth = 1;
       ctx.strokeRect(0, timeRulerHeight, timelineWidth, thumbnailAreaHeight);
       
@@ -1069,7 +1086,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       const mid = waveformY + waveformHeight_px / 2;
       
       // Draw waveform container background
-      ctx.fillStyle = "#0f172a"; // slate-900
+      ctx.fillStyle = "rgba(39, 39, 42, 0.20)"; // editor-bg-glass-tertiary
       ctx.fillRect(0, waveformY, timelineWidth, waveformHeight_px);
       
       // Draw waveform container border
@@ -1094,7 +1111,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       const mid = waveformY + waveformHeight_px / 2;
       
       // Draw waveform container background
-      ctx.fillStyle = "#0f172a"; // slate-900
+      ctx.fillStyle = "rgba(39, 39, 42, 0.20)"; // editor-bg-glass-tertiary
       ctx.fillRect(0, waveformY, timelineWidth, waveformHeight_px);
       
       // Draw waveform container border
@@ -1163,7 +1180,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       ctx.fillRect(startX, 0, selectionWidth, timelineHeight);
       
       // Draw selection border
-      ctx.strokeStyle = "#3b82f6"; // editor-status-info
+      ctx.strokeStyle = "rgba(59, 130, 246, 0.8)"; // editor-status-info with opacity
       ctx.lineWidth = 2;
       ctx.strokeRect(startX, 0, selectionWidth, timelineHeight);
       
@@ -1228,14 +1245,19 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       
       // Only draw tracks that are visible in the viewport
       if (trackTopY + trackHeight > timeRulerHeight && trackTopY < timelineHeight) {
-        // Draw track background
-        ctx.fillStyle = isEvenTrack ? "#1e293b" : "#0f172a"; // slate-800 and slate-900
+        // Draw track background with glassmorphic styling
+        ctx.fillStyle = isEvenTrack ? "rgba(39, 39, 42, 0.25)" : "rgba(39, 39, 42, 0.35)"; // editor-bg-glass-secondary and primary
         ctx.fillRect(0, trackTopY, timelineWidth, trackHeight);
         
-        // Draw track border
-        ctx.strokeStyle = "#334155"; // slate-700
+        // Draw track border with glassmorphic styling
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.10)"; // editor-border-tertiary
         ctx.lineWidth = 1;
         ctx.strokeRect(0, trackTopY, timelineWidth, trackHeight);
+        
+        // Add subtle inner highlight for glassmorphic depth
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(0.5, trackTopY + 0.5, timelineWidth - 1, trackHeight - 1);
       }
     });
 
@@ -1301,10 +1323,10 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           ctx.strokeStyle = "#ff6b35"; // Orange border for selected
           ctx.lineWidth = 4;
         } else if (isHovered) {
-          ctx.strokeStyle = "#60a5fa"; // Lighter blue border for hovered
+          ctx.strokeStyle = "rgba(96, 165, 250, 0.8)"; // Lighter editor-status-info for hovered
           ctx.lineWidth = 3;
         } else {
-          ctx.strokeStyle = "#3b82f6"; // Normal blue border
+          ctx.strokeStyle = "rgba(59, 130, 246, 0.8)"; // editor-status-info with opacity
           ctx.lineWidth = 2;
         }
         
@@ -1599,13 +1621,13 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     if (dragPreview && dragPreview.visible) {
       const { x, y, width, height, mediaType } = dragPreview;
       
-      // Draw blue opaque block with rounded corners
-      ctx.fillStyle = "rgba(59, 130, 246, 0.4)"; // Blue with opacity
+      // Draw glassmorphic selection block with rounded corners
+      ctx.fillStyle = "rgba(255, 255, 255, 0.15)"; // editor-interactive-active with opacity
       drawRoundedRect(ctx, x, y, width, height, 8); // 8px rounded corners
       ctx.fill();
       
       // Draw border
-      ctx.strokeStyle = "#3b82f6"; // Blue border
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.30)"; // editor-border-accent
       ctx.lineWidth = 2;
       drawRoundedRect(ctx, x, y, width, height, 8);
       ctx.stroke();
@@ -2287,46 +2309,64 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
   // Drag and drop handlers are now inlined in the JSX for better debugging
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden w-full">
+    <div 
+      className="relative overflow-hidden rounded-2xl w-full"
+      style={{
+        background: 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)',
+        backdropFilter: 'blur(25px) saturate(1.8)',
+        border: '1px solid rgba(255, 255, 255, 0.15)',
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.15), inset 2px 0 4px rgba(255, 255, 255, 0.05), inset -2px 0 4px rgba(0, 0, 0, 0.08)'
+      }}>
+      {/* Glassmorphic overlay for depth */}
+      <div className="absolute inset-0 bg-gradient-to-br from-white/3 to-transparent opacity-100 pointer-events-none rounded-2xl"></div>
+      
       {/* Header with Timeline Controls */}
-      <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
+      <div 
+        className="px-3 sm:px-4 py-2 sm:py-3 border-b border-white/10 flex items-center justify-between relative z-10"
+        style={{
+          background: 'linear-gradient(135deg, rgba(39, 39, 42, 0.7) 0%, rgba(63, 63, 70, 0.65) 25%, rgba(39, 39, 42, 0.6) 50%, rgba(24, 24, 27, 0.55) 75%, rgba(9, 9, 11, 0.5) 100%)',
+          backdropFilter: 'blur(25px) saturate(1.8)'
+        }}>
         <div className="flex items-center gap-1">
           {/* Timeline Tools */}
-          <div className="flex items-center gap-1 mr-4 border-r border-slate-600 pr-4">
+          <div className="flex items-center gap-1 mr-4 border-r border-editor-border-tertiary pr-4">
             <button
               onClick={() => setCurrentTool('select')}
-              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors border-0 p-0 ${
+              className={`group w-8 h-8 flex items-center justify-center rounded-xl transition-all duration-300 border-0 p-0 relative overflow-hidden ${
                 currentTool === 'select' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover'
+                  ? 'bg-editor-interactive-active text-editor-text-primary border border-editor-border-secondary shadow-[0_4px_12px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.2)]' 
+                  : 'bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary text-editor-text-tertiary hover:text-editor-text-primary hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]'
               }`}
               title="Select Tool"
             >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+              <svg className="w-4 h-4 relative z-10" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 100-2 1 1 0 000 2zm7-1a1 1 0 11-2 0 1 1 0 012 0zm-.464 5.535a1 1 0 10-1.415-1.414 3 3 0 01-4.242 0 1 1 0 00-1.415 1.414 5 5 0 007.072 0z" clipRule="evenodd" />
               </svg>
             </button>
             <button
               onClick={() => setCurrentTool('split')}
-              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors border-0 p-0 ${
+              className={`group w-8 h-8 flex items-center justify-center rounded-xl transition-all duration-300 border-0 p-0 relative overflow-hidden ${
                 currentTool === 'split' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover'
+                  ? 'bg-editor-interactive-active text-editor-text-primary border border-editor-border-secondary shadow-[0_4px_12px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.2)]' 
+                  : 'bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary text-editor-text-tertiary hover:text-editor-text-primary hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]'
               }`}
               title="Split Tool"
             >
-              <Scissors className="w-4 h-4" />
+              <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+              <Scissors className="w-4 h-4 relative z-10" />
             </button>
             <button
               onClick={() => setCurrentTool('resize')}
-              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors border-0 p-0 ${
+              className={`group w-8 h-8 flex items-center justify-center rounded-xl transition-all duration-300 border-0 p-0 relative overflow-hidden ${
                 currentTool === 'resize' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-editor-bg-tertiary text-editor-text-primary hover:bg-editor-interactive-hover'
+                  ? 'bg-editor-interactive-active text-editor-text-primary border border-editor-border-secondary shadow-[0_4px_12px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.2)]' 
+                  : 'bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary text-editor-text-tertiary hover:text-editor-text-primary hover:bg-editor-interactive-hover hover:border-editor-border-secondary hover:scale-105 shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]'
               }`}
               title="Resize Tool"
             >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
+              <svg className="w-4 h-4 relative z-10" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
               </svg>
             </button>
@@ -2412,11 +2452,22 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       </div>
       
       {/* Timeline Content with Track Controls */}
-      <div className="bg-slate-900 flex">
+      <div className="flex relative z-10" style={{ background: 'rgba(39, 39, 42, 0.25)' }}>
         {/* Track Controls Sidebar */}
-        <div className="w-12 bg-slate-800 border-r border-slate-700 flex-shrink-0 flex flex-col">
+        <div 
+          className="w-12 flex-shrink-0 flex flex-col border-r border-white/10"
+          style={{
+            background: 'linear-gradient(135deg, rgba(39, 39, 42, 0.4) 0%, rgba(63, 63, 70, 0.35) 50%, rgba(39, 39, 42, 0.3) 100%)',
+            backdropFilter: 'blur(20px) saturate(1.6)'
+          }}>
           {/* Ruler spacer to align with timeline ruler */}
-          <div style={{ height: `${timeRulerHeight}px` }} className="bg-slate-750 border-b border-slate-700 flex-shrink-0"></div>
+          <div 
+            style={{ 
+              height: `${timeRulerHeight}px`,
+              background: 'linear-gradient(135deg, rgba(39, 39, 42, 0.5) 0%, rgba(63, 63, 70, 0.45) 50%, rgba(39, 39, 42, 0.4) 100%)',
+              backdropFilter: 'blur(20px) saturate(1.6)'
+            }} 
+            className="border-b border-white/10 flex-shrink-0"></div>
           
           {/* Scrollable track controls area */}
           <div 
@@ -2600,7 +2651,8 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
             }
           }}
         >
-          <div ref={containerRef} className="w-full h-full relative">
+          <div ref={containerRef} className="w-full h-full relative bg-editor-bg-glass-primary backdrop-blur-2xl border border-editor-border-tertiary rounded-2xl overflow-hidden shadow-[inset_0_2px_8px_rgba(0,0,0,0.3),0_1px_0_rgba(255,255,255,0.1)]">
+            <div className="absolute inset-0 bg-gradient-to-br from-white/3 to-transparent rounded-2xl pointer-events-none"></div>
             <canvas 
               ref={canvasRef} 
               onClick={handleClick}
@@ -2611,21 +2663,22 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
               onDoubleClick={handleDoubleClick}
               onContextMenu={(e) => e.preventDefault()} // Prevent right-click menu
               tabIndex={0}
-              className={`${isScrubbing ? 'cursor-grabbing' : isSelecting ? 'cursor-crosshair' : isDragOver ? 'cursor-copy' : 'cursor-default'} transition-all duration-200 ease-in-out block w-full focus:outline-none`}
+              className={`${isScrubbing ? 'cursor-grabbing' : isSelecting ? 'cursor-crosshair' : isDragOver ? 'cursor-copy' : 'cursor-default'} transition-all duration-200 ease-in-out block w-full focus:outline-none relative z-10 rounded-2xl`}
               style={{ 
                 height: `${timelineHeight}px`, 
                 maxHeight: `${timelineHeight}px`,
                 width: '100%',
-                backgroundColor: isDragOver ? 'rgba(59, 130, 246, 0.1)' : 'transparent'
+                backgroundColor: isDragOver ? 'rgba(255, 255, 255, 0.05)' : 'transparent'
               }}
             />
             
             {/* Horizontal Scrollbar Overlay - Always visible */}
             <div 
-              className="absolute bottom-0 left-0 right-0 h-12 bg-slate-800/95 backdrop-blur-sm border-t border-slate-700 flex items-center px-4 z-10"
+              className="absolute bottom-0 left-0 right-0 h-12 bg-editor-bg-glass-secondary backdrop-blur-xl border-t border-editor-border-tertiary flex items-center px-4 z-20 rounded-b-2xl"
             >
+              <div className="absolute inset-0 bg-gradient-to-br from-white/3 to-transparent rounded-b-2xl pointer-events-none"></div>
               {/* Debug info */}
-              <div className="text-xs text-slate-300 mr-3 font-mono">
+              <div className="text-xs text-editor-text-tertiary mr-3 font-mono relative z-10">
                 Pan: {pan.toFixed(0)} | Zoom: {zoom.toFixed(2)}x | Infinite
               </div>
               <input
@@ -2651,9 +2704,9 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
                   });
                   setPan(newPan);
                 }}
-                className="flex-1 h-3 bg-slate-700 rounded-lg appearance-none cursor-pointer timeline-scrollbar-overlay"
+                className="flex-1 h-3 bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary rounded-lg appearance-none cursor-pointer timeline-scrollbar-overlay relative z-10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)]"
                 style={{
-                  background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${(pan / Math.max(1000, timelineWidth * zoom * 2)) * 100}%, #475569 ${(pan / Math.max(1000, timelineWidth * zoom * 2)) * 100}%, #475569 100%)`
+                  background: `linear-gradient(to right, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.2) ${(pan / Math.max(1000, timelineWidth * zoom * 2)) * 100}%, rgba(255,255,255,0.1) ${(pan / Math.max(1000, timelineWidth * zoom * 2)) * 100}%, rgba(255,255,255,0.1) 100%)`
                 }}
               />
             </div>
@@ -2661,8 +2714,8 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
 
           {/* Drag indicator */}
           {isDragOver && (
-            <div className="absolute inset-0 border-2 border-dashed border-blue-400 bg-blue-50 bg-opacity-10 flex items-center justify-center pointer-events-none">
-              <div className="text-blue-400 text-lg font-medium">Drop video here</div>
+            <div className="absolute inset-0 border-2 border-dashed border-editor-border-accent bg-editor-bg-glass-secondary bg-opacity-20 flex items-center justify-center pointer-events-none backdrop-blur-xl rounded-2xl">
+              <div className="text-editor-text-primary text-lg font-medium">Drop video here</div>
             </div>
           )}
 

@@ -57,6 +57,14 @@ button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
 }
 
+/* Remove focus outline for glass buttons */
+.glass-3d-button:focus,
+.glass-3d-button:focus-visible,
+.glass-3d-button-primary:focus,
+.glass-3d-button-primary:focus-visible {
+  outline: none;
+}
+
 /* Hide video play button overlay */
 .video-no-overlay::-webkit-media-controls-overlay-play-button {
   display: none !important;
@@ -81,7 +89,7 @@ button:focus-visible {
   height: 12px;
   width: 12px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: rgba(255, 255, 255, 0.3);
   cursor: pointer;
   border: 2px solid #ffffff;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
@@ -91,7 +99,7 @@ button:focus-visible {
   height: 12px;
   width: 12px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: rgba(255, 255, 255, 0.3);
   cursor: pointer;
   border: 2px solid #ffffff;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
@@ -115,7 +123,7 @@ button:focus-visible {
   height: 16px;
   width: 16px;
   border-radius: 8px;
-  background: #3b82f6;
+  background: rgba(255, 255, 255, 0.3);
   cursor: pointer;
   border: 2px solid #ffffff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
@@ -125,7 +133,7 @@ button:focus-visible {
   height: 16px;
   width: 16px;
   border-radius: 8px;
-  background: #3b82f6;
+  background: rgba(255, 255, 255, 0.3);
   cursor: pointer;
   border: 2px solid #ffffff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
@@ -149,7 +157,7 @@ button:focus-visible {
   height: 20px;
   width: 20px;
   border-radius: 10px;
-  background: #3b82f6;
+  background: rgba(255, 255, 255, 0.3);
   cursor: pointer;
   border: 3px solid #ffffff;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
@@ -166,7 +174,7 @@ button:focus-visible {
   height: 20px;
   width: 20px;
   border-radius: 10px;
-  background: #3b82f6;
+  background: rgba(255, 255, 255, 0.3);
   cursor: pointer;
   border: 3px solid #ffffff;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);

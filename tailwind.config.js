@@ -28,7 +28,7 @@ export default {
               overlay: 'rgba(0, 0, 0, 0.60)',        // backdrop overlay
             },
             panel: '#18181b',          // zinc-900 - panel backgrounds
-            canvas: '#09090b',         // zinc-950 - canvas/timeline
+            canvas: 'rgba(39, 39, 42, 0.35)', // zinc-800/35 - neutral glassmorphic canvas
           },
           // Text colors
           text: {
