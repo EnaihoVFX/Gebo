@@ -21,6 +21,53 @@ export class AIAgent {
   }
 
   /**
+   * Test the Gemini API connection
+   */
+  async testApiConnection(): Promise<string> {
+    try {
+      const response = await invoke('test_gemini_api') as string;
+      return response;
+    } catch (error) {
+      console.error('API test failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate a short, descriptive name for a chat based on the first user message
+   */
+  async generateChatName(firstUserMessage: string): Promise<string> {
+    try {
+      const response = await invoke('generate_chat_name', {
+        userMessage: firstUserMessage
+      }) as string;
+      
+      return response || this.generateFallbackName(firstUserMessage);
+    } catch (error) {
+      console.warn('Failed to generate AI chat name, using fallback:', error);
+      return this.generateFallbackName(firstUserMessage);
+    }
+  }
+
+  /**
+   * Generate a fallback name if AI generation fails
+   */
+  private generateFallbackName(message: string): string {
+    // Extract key words and create a short name
+    const words = message.toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .split(/\s+/)
+      .filter(word => word.length > 2 && !['the', 'and', 'for', 'with', 'this', 'that', 'remove', 'cut', 'edit'].includes(word))
+      .slice(0, 3);
+    
+    if (words.length === 0) {
+      return 'New Chat';
+    }
+    
+    return words.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  }
+
+  /**
    * Process a user message and generate a streaming response
    */
   async processMessage(

@@ -243,6 +243,20 @@ async fn has_gemini_api_key() -> Result<bool, String> {
   Ok(key.is_some())
 }
 
+#[tauri::command]
+async fn generate_chat_name(user_message: String) -> Result<String, String> {
+  ai_agent::generate_chat_name(user_message).await
+}
+
+#[tauri::command]
+async fn test_gemini_api() -> Result<String, String> {
+  let api_key = ai_agent::get_api_key().await?;
+  let api_key = api_key.ok_or_else(|| "No Gemini API key configured".to_string())?;
+  
+  let client = crate::gemini_client::GeminiClient::new(api_key);
+  client.test_api_key().await
+}
+
 fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
@@ -278,6 +292,8 @@ fn main() {
       set_gemini_api_key,
       get_gemini_api_key,
       has_gemini_api_key,
+      generate_chat_name,
+      test_gemini_api,
       // Transcription commands
       transcribe_media_file,
       // Video analysis commands

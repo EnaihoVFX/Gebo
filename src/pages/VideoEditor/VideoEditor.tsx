@@ -34,14 +34,14 @@ import { useProjectFile } from './hooks/useProjectFileManager';
 
 // Panel Components
 const TransitionsPanel = () => (
-  <div className="bg-slate-950 flex-1 flex items-center justify-center">
+  <div className="bg-editor-bg-primary flex-1 flex items-center justify-center">
     <div className="text-center">
-      <svg className="w-16 h-16 mx-auto mb-4 text-slate-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20">
+      <svg className="w-16 h-16 mx-auto mb-4 text-editor-text-tertiary" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20">
         <polygon points="4,4 4,16 8,10" strokeLinecap="round" strokeLinejoin="round" />
         <polygon points="16,4 16,16 12,10" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
-      <h3 className="text-lg font-medium text-slate-400 mb-2">Transitions</h3>
-      <p className="text-slate-500">Transition effects will appear here</p>
+      <h3 className="text-lg font-medium text-editor-text-secondary mb-2">Transitions</h3>
+      <p className="text-editor-text-tertiary">Transition effects will appear here</p>
     </div>
   </div>
 );
@@ -49,37 +49,37 @@ const TransitionsPanel = () => (
 // AudioPanel will be replaced with SongLibrary integration
 
 const TextPanel = () => (
-  <div className="bg-slate-950 flex-1 flex items-center justify-center">
+  <div className="bg-editor-bg-primary flex-1 flex items-center justify-center">
     <div className="text-center">
-      <svg className="w-16 h-16 mx-auto mb-4 text-slate-600" fill="currentColor" viewBox="0 0 16 16">
+      <svg className="w-16 h-16 mx-auto mb-4 text-editor-text-tertiary" fill="currentColor" viewBox="0 0 16 16">
         <path d="M5.68412,13v-.72885l.221-.0181c.7641-.05812.947-.1896.98514-.22866.02573-.02668.1572-.202.1572-.99276V4.07755H6.47918A2.45938,2.45938,0,0,0,5.002,4.36909a2.26179,2.26179,0,0,0-.56259,1.35957l-.03811.19626H3.6038L3.70384,3h8.59994l.09242,2.92492h-.78411l-.02144-.09527a2.81746,2.81746,0,0,0-.58832-1.46532c-.14719-.13148-.52305-.28678-1.481-.28678H8.9606v7.12272c0,.67835.13815.8184.16578.83936a2.09154,2.09154,0,0,0,1.00943.21342l.223.0181V13Z"/>
       </svg>
-      <h3 className="text-lg font-medium text-slate-400 mb-2">Text</h3>
-      <p className="text-slate-500">Text tools and typography will appear here</p>
+      <h3 className="text-lg font-medium text-editor-text-secondary mb-2">Text</h3>
+      <p className="text-editor-text-tertiary">Text tools and typography will appear here</p>
     </div>
   </div>
 );
 
 const EffectsPanel = () => (
-  <div className="bg-slate-950 flex-1 flex items-center justify-center">
+  <div className="bg-editor-bg-primary flex-1 flex items-center justify-center">
     <div className="text-center">
-      <svg className="w-16 h-16 mx-auto mb-4 text-slate-600" fill="currentColor" viewBox="0 0 24 24">
+      <svg className="w-16 h-16 mx-auto mb-4 text-editor-text-tertiary" fill="currentColor" viewBox="0 0 24 24">
         <path d="M15.199 9.945a2.6 2.6 0 0 1-.79-1.551l-.403-3.083-2.73 1.486a2.6 2.6 0 0 1-1.72.273L6.5 6.5l.57 3.056a2.6 2.6 0 0 1-.273 1.72l-1.486 2.73 3.083.403a2.6 2.6 0 0 1 1.55.79l2.138 2.257 1.336-2.807a2.6 2.6 0 0 1 1.23-1.231l2.808-1.336-2.257-2.137zm.025 5.563l-2.213 4.65a.6.6 0 0 1-.977.155l-3.542-3.739a.6.6 0 0 0-.357-.182l-5.107-.668a.6.6 0 0 1-.449-.881l2.462-4.524a.6.6 0 0 0 .062-.396L4.16 4.86a.6.6 0 0 1 .7-.7l5.063.943a.6.6 0 0 0 .396-.062l4.524-2.462a.6.6 0 0 1 .881.45l.668 5.106a.6.6 0 0 0 .182.357l3.739 3.542a.6.6 0 0 1-.155.977l-4.65 2.213a.6.6 0 0 0-.284.284zm.797 1.927l1.414-1.414 4.243 4.242-1.415 1.415-4.242-4.243z"/>
       </svg>
-      <h3 className="text-lg font-medium text-slate-400 mb-2">Effects</h3>
-      <p className="text-slate-500">Visual effects will appear here</p>
+      <h3 className="text-lg font-medium text-editor-text-secondary mb-2">Effects</h3>
+      <p className="text-editor-text-tertiary">Visual effects will appear here</p>
     </div>
   </div>
 );
 
 const FiltersPanel = () => (
-  <div className="bg-slate-950 flex-1 flex items-center justify-center">
+  <div className="bg-editor-bg-primary flex-1 flex items-center justify-center">
     <div className="text-center">
-      <svg className="w-16 h-16 mx-auto mb-4 text-slate-600" fill="currentColor" viewBox="0 0 24 24">
+      <svg className="w-16 h-16 mx-auto mb-4 text-editor-text-tertiary" fill="currentColor" viewBox="0 0 24 24">
         <path d="M16,1a6.956,6.956,0,0,0-4,1.264A7,7,0,1,0,5.19,14.407a7,7,0,1,0,13.62,0A7,7,0,0,0,16,1ZM12.881,9.062a6.29,6.29,0,0,0-1.762,0A4.88,4.88,0,0,1,12,5.031a4.88,4.88,0,0,1,.881,4.031Zm-2.387,3.246A4.938,4.938,0,0,1,8.028,13a5.015,5.015,0,0,1,1.9-1.533A7,7,0,0,0,10.494,12.308Zm3.58-.844A5.015,5.015,0,0,1,15.972,13a4.938,4.938,0,0,1-2.466-.689A7,7,0,0,0,14.074,11.464ZM3,8A5.006,5.006,0,0,1,8,3a4.948,4.948,0,0,1,2.494.692,6.911,6.911,0,0,0-1.3,5.9,7.037,7.037,0,0,0-3.264,2.943A5,5,0,0,1,3,8Zm14,8a5,5,0,1,1-9.881-1.062A6.839,6.839,0,0,0,12,13.736a6.839,6.839,0,0,0,4.881,1.2A4.959,4.959,0,0,1,17,16Zm1.074-3.464A7.029,7.029,0,0,0,14.81,9.594a6.913,6.913,0,0,0-1.3-5.9A4.948,4.948,0,0,1,16,3a4.992,4.992,0,0,1,2.074,9.536Z"/>
       </svg>
-      <h3 className="text-lg font-medium text-slate-400 mb-2">Filters</h3>
-      <p className="text-slate-500">Filter options will appear here</p>
+      <h3 className="text-lg font-medium text-editor-text-secondary mb-2">Filters</h3>
+      <p className="text-editor-text-tertiary">Filter options will appear here</p>
     </div>
   </div>
 );
@@ -737,7 +737,8 @@ export default function VideoEditor() {
             <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-2xl"></div>
             {/* Header */}
             <div className="px-2 py-2.5 border-b border-editor-border-tertiary bg-editor-bg-glass-secondary backdrop-blur-xl flex items-center justify-center relative z-10">
-              <div className="text-editor-text-muted">
+              <div className="absolute inset-0 bg-gradient-to-br from-white/3 to-transparent opacity-100 pointer-events-none"></div>
+              <div className="text-editor-text-muted relative z-10">
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
                 </svg>
@@ -854,10 +855,11 @@ export default function VideoEditor() {
             <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-2xl"></div>
             {/* Header */}
             <div className="px-3 sm:px-4 py-0 border-b border-editor-border-tertiary bg-editor-bg-glass-secondary backdrop-blur-xl flex items-center justify-between min-h-[2.3125rem] relative z-10">
-              <h3 className="text-sm font-medium text-editor-text-primary capitalize">
+              <div className="absolute inset-0 bg-gradient-to-br from-white/3 to-transparent opacity-100 pointer-events-none"></div>
+              <h3 className="text-sm font-medium text-editor-text-primary capitalize relative z-10">
                 {activePanel === 'audio' ? 'Song Library' : activePanel}
               </h3>
-              <div className="flex items-center">
+              <div className="flex items-center relative z-10">
                 {activePanel === 'media' && (
                   <button
                     onClick={() => pickMultipleFiles()}
@@ -920,8 +922,9 @@ export default function VideoEditor() {
             <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-2xl"></div>
             {/* Header */}
             <div className="px-3 sm:px-4 py-1.5 sm:py-2 border-b border-editor-border-tertiary bg-editor-bg-glass-secondary backdrop-blur-xl flex items-center justify-between relative z-10">
-              <h3 className="text-sm font-medium text-editor-text-primary">Preview</h3>
-              <div className="text-editor-text-muted">
+              <div className="absolute inset-0 bg-gradient-to-br from-white/3 to-transparent opacity-100 pointer-events-none"></div>
+              <h3 className="text-sm font-medium text-editor-text-primary relative z-10">Preview</h3>
+              <div className="text-editor-text-muted relative z-10">
                 <Play className="w-4 h-4" fill="currentColor" />
               </div>
             </div>
@@ -999,7 +1002,7 @@ export default function VideoEditor() {
       </div>
 
       {/* Timeline Section - Always Visible */}
-      <div className="flex-shrink-0 border-t border-editor-border-tertiary bg-editor-bg-glass-overlay backdrop-blur-2xl relative">
+      <div className="flex-shrink-0 border-t border-editor-border-tertiary bg-editor-bg-glass-overlay backdrop-blur-2xl relative p-2">
         <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent"></div>
         <ErrorBoundary>
           {useAdvancedTimeline ? (

@@ -423,34 +423,19 @@ struct GeminiPart {
 pub async fn analyze_video_file(
     file_path: String,
     api_key: Option<String>,
-    use_mock: Option<bool>,
-    duration: Option<f64>
+    _use_mock: Option<bool>,
+    _duration: Option<f64>
 ) -> Result<VideoAnalysisResult, String> {
     let service = VideoAnalysisService::new();
     
-    // For development/testing, use mock analysis
-    if use_mock.unwrap_or(false) {
-        // Use provided duration or default to 60.0 for mock
-        let duration = duration.unwrap_or(60.0);
-        return service.generate_mock_video_analysis(&file_path, duration).await
-            .map_err(|e| e.to_string());
-    }
-
     // Try Gemini video analysis if API key is provided
     if let Some(key) = api_key {
-        match service.analyze_video_with_gemini(&file_path, &key).await {
-            Ok(result) => return Ok(result),
-            Err(e) => {
-                log::warn!("Gemini video analysis failed: {}, trying mock", e);
-                let fallback_duration = duration.unwrap_or(60.0);
-                return service.generate_mock_video_analysis(&file_path, fallback_duration).await
-                    .map_err(|e| e.to_string());
-            }
-        }
+        service.analyze_video_with_gemini(&file_path, &key).await
+            .map_err(|e| {
+                log::error!("Gemini video analysis failed: {}", e);
+                e.to_string()
+            })
+    } else {
+        Err("No API key provided for video analysis".to_string())
     }
-
-    // Fallback to mock analysis
-    let fallback_duration = duration.unwrap_or(60.0);
-    service.generate_mock_video_analysis(&file_path, fallback_duration).await
-        .map_err(|e| e.to_string())
 }

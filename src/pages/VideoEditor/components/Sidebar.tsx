@@ -8,6 +8,7 @@ import {
   ChevronRight
 } from "lucide-react";
 import { Chat } from "./Chat";
+import { aiAgent } from "../../../lib/aiAgent";
 import type { Range, ChatSession, ChatMessage, AgentContext } from "../../../types";
 
 interface SidebarProps {
@@ -107,11 +108,22 @@ export function Sidebar({
         const userMessages = Array.isArray(messages) ? messages.filter(msg => msg.type === "user") : [];
         if (userMessages.length === 1 && chat.name.startsWith("Chat ")) {
           const firstMessage = userMessages[0].content;
-          // Create a short name from the first few words of the message
-          const shortName = firstMessage.length > 20 
-            ? firstMessage.substring(0, 20) + "..." 
-            : firstMessage;
-          updatedChat.name = shortName;
+          
+          // Generate AI-powered chat name
+          aiAgent.generateChatName(firstMessage).then(aiName => {
+            setChatSessions(prevSessions => prevSessions.map(session => 
+              session.id === chatId ? { ...session, name: aiName } : session
+            ));
+          }).catch(error => {
+            console.warn('Failed to generate AI chat name:', error);
+            // Fallback to simple truncation
+            const shortName = firstMessage.length > 20 
+              ? firstMessage.substring(0, 20) + "..." 
+              : firstMessage;
+            setChatSessions(prevSessions => prevSessions.map(session => 
+              session.id === chatId ? { ...session, name: shortName } : session
+            ));
+          });
         }
         
         return updatedChat;
@@ -186,9 +198,10 @@ export function Sidebar({
       {!isCollapsed ? (
         <>
           {/* Header - Single Row with Tabs and Buttons */}
-          <div className="border-b border-editor-border-tertiary bg-editor-bg-glass-secondary backdrop-blur-xl px-3 sm:px-4 py-1 sm:py-1.5 flex items-center gap-2 relative min-w-0">
+          <div className="border-b border-editor-border-tertiary bg-editor-bg-glass-secondary backdrop-blur-xl px-3 sm:px-4 py-px flex items-center gap-2 relative min-w-0">
+            <div className="absolute inset-0 bg-gradient-to-br from-white/3 to-transparent opacity-100 pointer-events-none"></div>
               {/* Left Scroll Button */}
-              <div className={`transition-all duration-200 flex-shrink-0 ${canScrollLeft ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+              <div className={`transition-all duration-200 flex-shrink-0 relative z-10 ${canScrollLeft ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                 <button
                   onClick={scrollLeft}
                   className="group w-6 h-6 flex items-center justify-center text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
@@ -200,7 +213,7 @@ export function Sidebar({
               </div>
               
               {/* Chat Tabs Container with Fade Effects */}
-              <div className="flex-1 relative min-w-0">
+              <div className="flex-1 relative min-w-0 z-10">
                 {/* Left Fade - Overlay that masks content scrolled out of view */}
                 <div className={`absolute left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-editor-bg-glass-secondary via-editor-bg-glass-secondary/80 to-transparent z-20 pointer-events-none transition-opacity duration-300 ${showLeftFade ? 'opacity-100' : 'opacity-0'}`} />
                 
@@ -246,7 +259,7 @@ export function Sidebar({
               </div>
               
               {/* Right Scroll Button */}
-              <div className={`transition-all duration-200 flex-shrink-0 ${canScrollRight ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+              <div className={`transition-all duration-200 flex-shrink-0 relative z-10 ${canScrollRight ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                 <button
                   onClick={scrollRight}
                   className="group w-6 h-6 flex items-center justify-center text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
@@ -258,7 +271,7 @@ export function Sidebar({
               </div>
               
               {/* Action Buttons - Fixed width to prevent overflow */}
-              <div className="flex items-center gap-1 flex-shrink-0 w-24">
+              <div className="flex items-center gap-1 flex-shrink-0 w-24 relative z-10">
                 <button
                   onClick={createNewChat}
                   className="group w-6 h-6 flex items-center justify-center text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"

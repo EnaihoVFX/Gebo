@@ -234,33 +234,18 @@ struct OpenAISegment {
 pub async fn transcribe_media_file(
     file_path: String,
     api_key: Option<String>,
-    use_mock: Option<bool>
+    _use_mock: Option<bool>
 ) -> Result<TranscriptionResult, String> {
     let service = TranscriptionService::new();
     
-    // For development/testing, use mock transcription
-    if use_mock.unwrap_or(false) {
-        // Get file duration (you might want to probe the file first)
-        let duration = 60.0; // Default duration for mock
-        return service.generate_mock_transcription(&file_path, duration).await
-            .map_err(|e| e.to_string());
-    }
-
-    // Try OpenAI Whisper first if API key is provided
+    // Try OpenAI Whisper if API key is provided
     if let Some(key) = api_key {
-        match service.transcribe_with_openai_whisper(&file_path, &key).await {
-            Ok(result) => return Ok(result),
-            Err(e) => {
-                log::warn!("OpenAI Whisper failed: {}, trying mock", e);
-                let duration = 60.0; // Default duration for mock
-                return service.generate_mock_transcription(&file_path, duration).await
-                    .map_err(|e| e.to_string());
-            }
-        }
+        service.transcribe_with_openai_whisper(&file_path, &key).await
+            .map_err(|e| {
+                log::error!("OpenAI Whisper failed: {}", e);
+                e.to_string()
+            })
+    } else {
+        Err("No API key provided for transcription".to_string())
     }
-
-    // Fallback to mock transcription
-    let duration = 60.0; // Default duration for mock
-    service.generate_mock_transcription(&file_path, duration).await
-        .map_err(|e| e.to_string())
 }

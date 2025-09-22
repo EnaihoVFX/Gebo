@@ -109,7 +109,216 @@ lazy_static::lazy_static! {
     static ref GEMINI_API_KEY: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(Some("AIzaSyDfZmNLxzrECAS6ICvqlut82yt-SK1AX7o".to_string())));
 }
 
-/// Process a user message with the AI agent using Gemini API
+/// Process a user message with the AI agent using Gemini API with streaming support
+pub async fn process_message_stream<F>(
+    user_message: String,
+    context: AgentContext,
+    mut on_token: F,
+) -> Result<AgentResponse, String> 
+where
+    F: FnMut(&str) -> (),
+{
+    let mut is_processing = AI_AGENT_STATE.is_processing.lock().await;
+    if *is_processing {
+        return Err("Agent is already processing a request".to_string());
+    }
+    *is_processing = true;
+    drop(is_processing);
+
+    let message_id = format!("msg_{}_{}", 
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis(),
+        uuid::Uuid::new_v4().to_string()[..8].to_string()
+    );
+
+    // Get API key from global state
+    let api_key = {
+        let key_guard = GEMINI_API_KEY.lock().await;
+        key_guard.clone()
+    };
+    
+    // Check if API key is available
+    if api_key.is_none() {
+        log::error!("No Gemini API key configured. Please set your API key first.");
+        return Err("No Gemini API key configured. Please set your API key in the settings.".to_string());
+    }
+    
+    let api_key = api_key.unwrap();
+    
+    // Initialize Gemini client with API key
+    let gemini_client = GeminiClient::new(api_key);
+    
+    // Create project context string with transcript information
+    let mut project_context = format!(
+        "Project: {} (Duration: {}s, Tracks: {}, Clips: {}, Accepted Cuts: {}, Preview Cuts: {})",
+        context.current_project.file_path,
+        context.current_project.duration,
+        context.current_project.tracks.len(),
+        context.current_project.clips.len(),
+        context.current_project.accepted_cuts.len(),
+        context.current_project.preview_cuts.len()
+    );
+
+    // Add video analysis and transcript information if available
+    let mut content_summary = String::new();
+    for media_file in &context.current_project.media_files {
+        // Parse media file JSON to extract video analysis and transcript
+        if let Ok(media_file_obj) = serde_json::from_value::<serde_json::Value>(media_file.clone()) {
+            let file_name = media_file_obj.get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("Unknown");
+            
+            // Check for video analysis first (primary method)
+            if let Some(video_analysis) = media_file_obj.get("videoAnalysis") {
+                if let Some(summary) = video_analysis.get("summary").and_then(|s| s.as_str()) {
+                    content_summary.push_str(&format!("\n\nVideo '{}' analysis:", file_name));
+                    content_summary.push_str(&format!("\nSummary: {}", summary));
+                    
+                    // Add topics
+                    if let Some(topics) = video_analysis.get("topics").and_then(|t| t.as_array()) {
+                        if !topics.is_empty() {
+                            let topic_list: Vec<String> = topics.iter()
+                                .filter_map(|t| t.as_str())
+                                .map(|s| s.to_string())
+                                .collect();
+                            content_summary.push_str(&format!("\nTopics: {}", topic_list.join(", ")));
+                        }
+                    }
+                    
+                    // Add sentiment
+                    if let Some(sentiment) = video_analysis.get("sentiment").and_then(|s| s.as_str()) {
+                        content_summary.push_str(&format!("\nSentiment: {}", sentiment));
+                    }
+                    
+                    // Add key moments
+                    if let Some(key_moments) = video_analysis.get("keyMoments").and_then(|k| k.as_array()) {
+                        if !key_moments.is_empty() {
+                            content_summary.push_str(&format!("\nKey moments ({} total):", key_moments.len()));
+                            for (i, moment) in key_moments.iter().enumerate() {
+                                if i >= 2 { // Limit to first 2 key moments
+                                    content_summary.push_str("\n... (more key moments available)");
+                                    break;
+                                }
+                                if let (Some(start), Some(description)) = (
+                                    moment.get("start").and_then(|s| s.as_f64()),
+                                    moment.get("description").and_then(|d| d.as_str())
+                                ) {
+                                    content_summary.push_str(&format!("\n  {:.1}s: {}", start, description));
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Add visual elements
+                    if let Some(visual_elements) = video_analysis.get("visualElements").and_then(|v| v.as_array()) {
+                        if !visual_elements.is_empty() {
+                            content_summary.push_str(&format!("\nVisual elements: {} detected", visual_elements.len()));
+                        }
+                    }
+                }
+            }
+            // Fallback to transcript if no video analysis
+            else if let Some(transcript) = media_file_obj.get("transcript") {
+                if let Some(segments) = transcript.as_array() {
+                    if !segments.is_empty() {
+                        content_summary.push_str(&format!("\n\nVideo '{}' transcript ({} segments):", file_name, segments.len()));
+                        
+                        // Add first few segments as context
+                        for (i, segment) in segments.iter().enumerate() {
+                            if i >= 3 { // Limit to first 3 segments
+                                content_summary.push_str("\n... (more segments available)");
+                                break;
+                            }
+                            
+                            if let (Some(start), Some(end), Some(text)) = (
+                                segment.get("start").and_then(|s| s.as_f64()),
+                                segment.get("end").and_then(|e| e.as_f64()),
+                                segment.get("text").and_then(|t| t.as_str())
+                            ) {
+                                content_summary.push_str(&format!("\n  {:.1}s-{:.1}s: {}", start, end, text));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !content_summary.is_empty() {
+        project_context.push_str(&content_summary);
+    }
+
+    // Get AI response from Gemini with streaming
+    let ai_response = gemini_client.generate_video_editing_response_stream(&user_message, &project_context, |token| {
+        on_token(token);
+    }).await.map_err(|e| {
+        log::error!("Gemini API streaming failed with error: {}", e);
+        log::error!("Project context length: {} characters", project_context.len());
+        log::error!("User message: {}", user_message);
+        
+        // Check if it's a JSON parsing error specifically
+        if e.contains("Failed to parse AI response as JSON") {
+            log::error!("This appears to be a JSON parsing issue. The AI may have returned malformed JSON.");
+        } else if e.contains("API request failed") {
+            log::error!("This appears to be an API connectivity issue. Check your API key and internet connection.");
+        }
+        
+        e
+    })?;
+
+    // Convert AI response to our format
+    let thinking_steps: Vec<ThinkingStep> = ai_response.thinking_steps.into_iter().map(|step| ThinkingStep {
+        id: step.id,
+        title: step.title,
+        description: step.description,
+        status: step.status,
+        details: step.details,
+        timestamp: step.timestamp,
+        duration: step.duration,
+    }).collect();
+
+    let edit_operations: Vec<EditOperation> = ai_response.edit_operations.into_iter().map(|op| EditOperation {
+        id: op.id,
+        operation_type: op.operation_type,
+        description: op.description,
+        parameters: op.parameters,
+        target_clip_id: op.target_clip_id,
+        target_track_id: op.target_track_id,
+        time_range: op.time_range.map(|tr| TimeRange { start: tr.start, end: tr.end }),
+        preview_data: op.preview_data,
+    }).collect();
+
+    // Generate video preview if applicable
+    let video_preview = generate_video_preview(&edit_operations, &context).await;
+    
+    // Generate actions
+    let actions = ai_response.actions.map(|actions| {
+        actions.into_iter().map(|action| ChatAction {
+            action_type: action.action_type,
+            label: action.label,
+        }).collect()
+    });
+
+    let response = AgentResponse {
+        message_id: message_id.clone(),
+        content: ai_response.response_content,
+        thinking_steps,
+        final_edits: edit_operations,
+        has_video_preview: video_preview.is_some(),
+        video_preview,
+        actions,
+    };
+
+    // Release processing lock
+    let mut is_processing = AI_AGENT_STATE.is_processing.lock().await;
+    *is_processing = false;
+
+    Ok(response)
+}
+
+/// Process a user message with the AI agent using Gemini API (non-streaming version)
 pub async fn process_message(
     user_message: String,
     context: AgentContext,
@@ -247,20 +456,20 @@ pub async fn process_message(
     }
 
     // Get AI response from Gemini
-    let ai_response = match gemini_client.generate_video_editing_response(&user_message, &project_context).await {
-        Ok(response) => {
-            log::info!("Gemini API response received successfully");
-            response
-        },
-        Err(e) => {
-            // Fallback to mock response if Gemini fails
-            log::error!("Gemini API failed with error: {}", e);
-            log::error!("Project context length: {} characters", project_context.len());
-            log::error!("User message: {}", user_message);
-            log::warn!("Falling back to mock response");
-            generate_mock_response(&user_message, &context).await
+    let ai_response = gemini_client.generate_video_editing_response(&user_message, &project_context).await.map_err(|e| {
+        log::error!("Gemini API failed with error: {}", e);
+        log::error!("Project context length: {} characters", project_context.len());
+        log::error!("User message: {}", user_message);
+        
+        // Check if it's a JSON parsing error specifically
+        if e.contains("Failed to parse AI response as JSON") {
+            log::error!("This appears to be a JSON parsing issue. The AI may have returned malformed JSON.");
+        } else if e.contains("API request failed") {
+            log::error!("This appears to be an API connectivity issue. Check your API key and internet connection.");
         }
-    };
+        
+        e
+    })?;
 
     // Convert AI response to our format
     let thinking_steps: Vec<ThinkingStep> = ai_response.thinking_steps.into_iter().map(|step| ThinkingStep {
@@ -1162,5 +1371,79 @@ pub fn set_api_key(api_key: String) -> Result<(), String> {
 pub async fn get_api_key() -> Result<Option<String>, String> {
     let key_guard = GEMINI_API_KEY.lock().await;
     Ok(key_guard.clone())
+}
+
+/// Generate a short, descriptive name for a chat based on the first user message
+pub async fn generate_chat_name(user_message: String) -> Result<String, String> {
+    // Get API key
+    let api_key = get_api_key().await?;
+    let api_key = api_key.ok_or_else(|| "No Gemini API key configured".to_string())?;
+    
+    let client = GeminiClient::new(api_key);
+    
+    let prompt = format!(
+        "Generate a short, descriptive name (2-4 words max) for a video editing chat based on this user message: \"{}\"\n\n\
+        The name should be:\n\
+        - Concise and clear\n\
+        - Related to the video editing task\n\
+        - Professional but friendly\n\
+        - No quotes or special characters\n\n\
+        Examples:\n\
+        - \"Remove Silence\" for removing silent parts\n\
+        - \"Cut Segments\" for cutting specific parts\n\
+        - \"Tighten Audio\" for audio editing\n\
+        - \"Detect Issues\" for finding problems\n\n\
+        Just return the name, nothing else:",
+        user_message
+    );
+
+    let response = client.generate_content(prompt).await?;
+    let name = response.trim()
+        .replace('"', "")
+        .replace('\'', "")
+        .replace('\n', " ")
+        .split_whitespace()
+        .take(4)
+        .collect::<Vec<&str>>()
+        .join(" ");
+    
+    if name.is_empty() {
+        Ok(generate_fallback_name(&user_message))
+    } else {
+        Ok(name)
+    }
+}
+
+/// Generate a fallback name if AI generation fails
+fn generate_fallback_name(message: &str) -> String {
+    // Extract key words and create a short name
+    let cleaned_message = message
+        .to_lowercase()
+        .replace(|c: char| !c.is_alphanumeric() && !c.is_whitespace(), "");
+    
+    let words: Vec<&str> = cleaned_message
+        .split_whitespace()
+        .filter(|word| {
+            word.len() > 2 && 
+            !["the", "and", "for", "with", "this", "that", "remove", "cut", "edit", "video", "audio", "file"].contains(word)
+        })
+        .take(3)
+        .collect();
+    
+    if words.is_empty() {
+        return "New Chat".to_string();
+    }
+    
+    words
+        .iter()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(" ")
 }
 

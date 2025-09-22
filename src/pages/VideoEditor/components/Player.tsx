@@ -167,79 +167,31 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
               <div className={`${large ? "m-2 flex-shrink-0" : "mt-3"} flex items-center justify-center gap-3`}>
                 <button
                   onClick={handleSeekBack}
-                  className="group p-3 text-white/80 hover:text-white rounded-2xl transition-all duration-300 hover:scale-105 relative overflow-hidden"
+                  className="group w-8 h-8 flex items-center justify-center text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
                   title="Seek Backward 1s"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)',
-                    backdropFilter: 'blur(20px) saturate(1.6)',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(39, 39, 42, 0.7) 0%, rgba(63, 63, 70, 0.65) 25%, rgba(39, 39, 42, 0.6) 50%, rgba(24, 24, 27, 0.55) 75%, rgba(9, 9, 11, 0.5) 100%)';
-                    e.currentTarget.style.transform = 'translateY(-1px) scale(1.05)';
-                    e.currentTarget.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)';
-                    e.currentTarget.style.transform = 'translateY(0px) scale(1)';
-                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
-                  }}
                 >
-                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
-                  <SkipBack className="w-5 h-5 relative z-10" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
+                  <SkipBack className="w-4 h-4 flex-shrink-0 relative z-10" />
                 </button>
                 <button
                   onClick={handleTogglePlay}
-                  className="group p-4 text-white rounded-2xl transition-all duration-300 hover:scale-105 relative overflow-hidden"
+                  className="group w-8 h-8 flex items-center justify-center text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
                   title={isPlaying ? "Pause" : "Play"}
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)',
-                    backdropFilter: 'blur(25px) saturate(1.8)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    boxShadow: '0 6px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(39, 39, 42, 0.7) 0%, rgba(63, 63, 70, 0.65) 25%, rgba(39, 39, 42, 0.6) 50%, rgba(24, 24, 27, 0.55) 75%, rgba(9, 9, 11, 0.5) 100%)';
-                    e.currentTarget.style.transform = 'translateY(-1px) scale(1.05)';
-                    e.currentTarget.style.boxShadow = '0 12px 48px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)';
-                    e.currentTarget.style.transform = 'translateY(0px) scale(1)';
-                    e.currentTarget.style.boxShadow = '0 6px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)';
-                  }}
                 >
-                  <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
                   {isPlaying ? (
-                    <Pause className="w-6 h-6 relative z-10" />
+                    <Pause className="w-4 h-4 flex-shrink-0 relative z-10" />
                   ) : (
-                    <Play className="w-6 h-6 relative z-10 ml-0.5" />
+                    <Play className="w-4 h-4 flex-shrink-0 relative z-10" />
                   )}
                 </button>
                 <button
                   onClick={handleSeekForward}
-                  className="group p-3 text-white/80 hover:text-white rounded-2xl transition-all duration-300 hover:scale-105 relative overflow-hidden"
+                  className="group w-8 h-8 flex items-center justify-center text-editor-text-tertiary hover:text-editor-text-primary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary hover:bg-editor-interactive-hover hover:border-editor-border-secondary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden"
                   title="Seek Forward 1s"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)',
-                    backdropFilter: 'blur(20px) saturate(1.6)',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(39, 39, 42, 0.7) 0%, rgba(63, 63, 70, 0.65) 25%, rgba(39, 39, 42, 0.6) 50%, rgba(24, 24, 27, 0.55) 75%, rgba(9, 9, 11, 0.5) 100%)';
-                    e.currentTarget.style.transform = 'translateY(-1px) scale(1.05)';
-                    e.currentTarget.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(39, 39, 42, 0.6) 0%, rgba(63, 63, 70, 0.55) 25%, rgba(39, 39, 42, 0.5) 50%, rgba(24, 24, 27, 0.45) 75%, rgba(9, 9, 11, 0.4) 100%)';
-                    e.currentTarget.style.transform = 'translateY(0px) scale(1.05)';
-                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
-                  }}
                 >
-                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
-                  <SkipForward className="w-5 h-5 relative z-10" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
+                  <SkipForward className="w-4 h-4 flex-shrink-0 relative z-10" />
                 </button>
               </div>
             </>
@@ -260,24 +212,27 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
               <div className={`${large ? "m-2 flex-shrink-0" : "mt-3"} flex items-center justify-center gap-3`}>
                 <button
                   disabled
-                  className="p-3 text-editor-text-muted rounded-2xl transition-all duration-300 cursor-not-allowed bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] opacity-50"
+                  className="group w-8 h-8 flex items-center justify-center text-editor-text-tertiary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
                   title="No video loaded"
                 >
-                  <SkipBack className="w-5 h-5" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
+                  <SkipBack className="w-4 h-4 flex-shrink-0 relative z-10" />
                 </button>
                 <button
                   disabled
-                  className="p-4 text-editor-text-muted rounded-2xl transition-all duration-300 cursor-not-allowed bg-editor-bg-glass-secondary backdrop-blur-xl border border-editor-border-tertiary shadow-[0_4px_16px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.1)] opacity-50"
+                  className="group w-8 h-8 flex items-center justify-center text-editor-text-tertiary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
                   title="No video loaded"
                 >
-                  <Play className="w-6 h-6 ml-0.5" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
+                  <Play className="w-4 h-4 flex-shrink-0 relative z-10" />
                 </button>
                 <button
                   disabled
-                  className="p-3 text-editor-text-muted rounded-2xl transition-all duration-300 cursor-not-allowed bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] opacity-50"
+                  className="group w-8 h-8 flex items-center justify-center text-editor-text-tertiary bg-editor-bg-glass-tertiary backdrop-blur-xl border border-editor-border-tertiary transition-all duration-300 rounded-lg focus:outline-none shadow-[0_2px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
                   title="No video loaded"
                 >
-                  <SkipForward className="w-5 h-5" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
+                  <SkipForward className="w-4 h-4 flex-shrink-0 relative z-10" />
                 </button>
               </div>
             </>

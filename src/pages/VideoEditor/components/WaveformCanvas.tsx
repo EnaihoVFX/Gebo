@@ -29,8 +29,21 @@ export function WaveformCanvas({
     const g = c.getContext("2d")!;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // bg
-    g.fillStyle = "#0a0a0a"; g.fillRect(0, 0, width, height);
+    // Enhanced glassmorphic background matching main timeline
+    const backgroundGradient = g.createLinearGradient(0, 0, 0, height);
+    backgroundGradient.addColorStop(0, "rgba(63, 63, 70, 0.35)"); // editor-bg-glass-primary
+    backgroundGradient.addColorStop(0.5, "rgba(55, 55, 60, 0.30)");
+    backgroundGradient.addColorStop(1, "rgba(39, 39, 42, 0.25)");
+    g.fillStyle = backgroundGradient;
+    g.fillRect(0, 0, width, height);
+    
+    // Add subtle backdrop blur effect simulation
+    const blurGradient = g.createLinearGradient(0, 0, 0, height);
+    blurGradient.addColorStop(0, "rgba(255, 255, 255, 0.08)");
+    blurGradient.addColorStop(0.5, "rgba(255, 255, 255, 0.03)");
+    blurGradient.addColorStop(1, "rgba(255, 255, 255, 0.05)");
+    g.fillStyle = blurGradient;
+    g.fillRect(0, 0, width, height);
 
     // waveform
     const mid = height / 2; g.fillStyle = "#71717a";
@@ -52,8 +65,21 @@ export function WaveformCanvas({
     drawRanges(preview, "rgba(245, 158, 11, 0.35)"); // amber-500
     drawRanges(accepted, "rgba(239, 68, 68, 0.35)");  // red-600
 
-    // border
-    g.strokeStyle = "#27272a"; g.strokeRect(0, 0, width, height);
+    // Enhanced border system matching main timeline
+    // Outer border with enhanced visibility
+    g.strokeStyle = "rgba(255, 255, 255, 0.20)"; // editor-border-secondary
+    g.lineWidth = 1;
+    g.strokeRect(0, 0, width, height);
+    
+    // Inner highlight for glassmorphic depth
+    g.strokeStyle = "rgba(255, 255, 255, 0.12)";
+    g.lineWidth = 0.5;
+    g.strokeRect(0.5, 0.5, width - 1, height - 1);
+    
+    // Subtle inner shadow for depth
+    g.strokeStyle = "rgba(0, 0, 0, 0.15)";
+    g.lineWidth = 0.5;
+    g.strokeRect(1, 1, width - 2, height - 2);
   }, [samples, accepted, preview, duration, width, height]);
 
   const onClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -71,7 +97,7 @@ export function WaveformCanvas({
   };
 
   return (
-    <div className="rounded bg-zinc-950 border border-zinc-800 p-2 overflow-x-auto overflow-y-hidden">
+    <div className="rounded bg-editor-bg-glass-primary border border-editor-border-tertiary p-2 overflow-x-auto overflow-y-hidden backdrop-blur-xl">
       <div style={{ height: `${height}px` }}>
         <canvas 
           ref={ref} 
@@ -81,7 +107,7 @@ export function WaveformCanvas({
           style={{ height: `${height}px`, maxHeight: `${height}px` }}
         />
       </div>
-      <div className="mt-2 text-[11px] text-zinc-400 flex gap-3">
+      <div className="mt-2 text-[11px] text-editor-text-tertiary flex gap-3">
         <span className="inline-flex items-center gap-1">
           <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "rgba(239,68,68,0.8)" }}></span> Accepted
         </span>
