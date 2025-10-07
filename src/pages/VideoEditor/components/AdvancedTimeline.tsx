@@ -63,7 +63,9 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [isGeneratingThumbnails, setIsGeneratingThumbnails] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [zoom, setZoom] = useState(1);
+  // Default zoom to show 5 minutes of the 30-minute timeline
+  // Timeline duration: 1800s (30 min), Visible: 300s (5 min) → zoom = 1800/300 = 6
+  const [zoom, setZoom] = useState(6);
   const [pan, setPan] = useState(0);
   const [isZooming, setIsZooming] = useState(false);
   const [isScrubbing, setIsScrubbing] = useState(false);
@@ -1397,7 +1399,9 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           ctx.strokeRect(clipEndX - handleSize/2, handleY, handleSize, handleSize);
         }
 
-        // Draw waveform for this clip (top half only, starting from bottom)
+        // Draw waveform for this clip
+        // For audio clips: full height centered waveform
+        // For video clips: bottom half only
         if (mediaFile.peaks && mediaFile.peaks.length > 0) {
           console.log(`Drawing waveform for clip ${index}: ${mediaFile.peaks.length} peaks, clipWidth: ${clipWidth}`);
           console.log(`First 10 peak values:`, mediaFile.peaks.slice(0, 10));
@@ -1407,48 +1411,69 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           const samplesPerPixel = mediaFile.peaks.length / clipWidth;
           const maxPeak = Math.max(...mediaFile.peaks);
           
-          ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+          const isAudio = mediaFile.type === 'audio';
           
-          // Calculate waveform area - leave more space at top for thumbnails
-          const thumbnailSpace = trackHeight * 0.45; // 45% of track height for thumbnails
-          const waveformAreaHeight = trackHeight - thumbnailSpace; // 55% of track height for waveform
-          const waveformStartY = trackTopY + trackHeight; // Start from bottom of track
-          
-          // Draw more bars with rounded corners for finer detail
-          const barSpacing = Math.max(1, Math.floor(clipWidth / 600)); // Max 600 bars (more bars = thinner)
-          const barWidth = Math.max(1, barSpacing - 1);
-          
-          for (let x = 0; x < clipWidth; x += barSpacing) {
-            const sampleIndex = Math.floor(x * samplesPerPixel);
-            if (sampleIndex < mediaFile.peaks.length) {
-              const amplitude = mediaFile.peaks[sampleIndex];
-              
-              // Only use positive amplitude (top half of waveform)
-              const positiveAmplitude = Math.abs(amplitude);
-              const normalizedAmplitude = maxPeak > 0 ? positiveAmplitude / maxPeak : 0;
-              
-              // Calculate bar height - use less of the available waveform area
-              const maxBarHeight = waveformAreaHeight * 0.7; // Use 70% of available height
-              const barHeight = Math.max(2, normalizedAmplitude * maxBarHeight);
-              
-              // Draw waveform bars starting from bottom
-              const barX = clipStartX + x;
-              const barY = waveformStartY - barHeight; // Start from bottom, go up
-              
-              // Create rounded rectangle
-              ctx.beginPath();
-              ctx.roundRect(barX, barY, barWidth, barHeight, barWidth / 2);
-              ctx.fill();
+          if (isAudio) {
+            // Audio clips: full height, centered waveform
+            ctx.fillStyle = "rgba(100, 200, 255, 0.7)"; // Brighter blue for audio
+            
+            const centerY = trackTopY + trackHeight / 2;
+            const maxBarHeight = (trackHeight * 0.8) / 2; // 80% of track height, half for each side
+            const barSpacing = Math.max(1, Math.floor(clipWidth / 600));
+            const barWidth = Math.max(1, barSpacing - 1);
+            
+            for (let x = 0; x < clipWidth; x += barSpacing) {
+              const sampleIndex = Math.floor(x * samplesPerPixel);
+              if (sampleIndex < mediaFile.peaks.length) {
+                const amplitude = mediaFile.peaks[sampleIndex];
+                const positiveAmplitude = Math.abs(amplitude);
+                const normalizedAmplitude = maxPeak > 0 ? positiveAmplitude / maxPeak : 0;
+                const barHeight = Math.max(2, normalizedAmplitude * maxBarHeight);
+                
+                const barX = clipStartX + x;
+                // Draw symmetric waveform (top and bottom from center)
+                ctx.beginPath();
+                ctx.roundRect(barX, centerY - barHeight, barWidth, barHeight * 2, barWidth / 2);
+                ctx.fill();
+              }
+            }
+          } else {
+            // Video clips: bottom half only for waveform
+            ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+            
+            const thumbnailSpace = trackHeight * 0.45;
+            const waveformAreaHeight = trackHeight - thumbnailSpace;
+            const waveformStartY = trackTopY + trackHeight;
+            const barSpacing = Math.max(1, Math.floor(clipWidth / 600));
+            const barWidth = Math.max(1, barSpacing - 1);
+            
+            for (let x = 0; x < clipWidth; x += barSpacing) {
+              const sampleIndex = Math.floor(x * samplesPerPixel);
+              if (sampleIndex < mediaFile.peaks.length) {
+                const amplitude = mediaFile.peaks[sampleIndex];
+                const positiveAmplitude = Math.abs(amplitude);
+                const normalizedAmplitude = maxPeak > 0 ? positiveAmplitude / maxPeak : 0;
+                const maxBarHeight = waveformAreaHeight * 0.7;
+                const barHeight = Math.max(2, normalizedAmplitude * maxBarHeight);
+                
+                const barX = clipStartX + x;
+                const barY = waveformStartY - barHeight;
+                
+                ctx.beginPath();
+                ctx.roundRect(barX, barY, barWidth, barHeight, barWidth / 2);
+                ctx.fill();
+              }
             }
           }
         } else {
           console.log(`No peaks data for clip ${index}:`, mediaFile.peaks);
-          // Draw a simple audio icon when no waveform data (positioned lower)
-          ctx.fillStyle = "rgba(255, 255, 255, 0.6)"; // editor-text-secondary
+          // Draw a simple audio icon when no waveform data
+          ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
           ctx.font = "24px Arial, sans-serif";
           ctx.textAlign = "center";
-          ctx.fillText("♪", clipStartX + clipWidth / 2, trackTopY + trackHeight * 0.75 + 8);
-          ctx.textAlign = "left"; // Reset alignment
+          const iconY = mediaFile.type === 'audio' ? trackTopY + trackHeight / 2 + 8 : trackTopY + trackHeight * 0.75 + 8;
+          ctx.fillText("♪", clipStartX + clipWidth / 2, iconY);
+          ctx.textAlign = "left";
         }
 
         // Draw filmstrip thumbnails for this clip (if it's a video)
@@ -1688,24 +1713,67 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       drawRoundedRect(ctx, x, y, width, height, 8);
       ctx.stroke();
       
-      // Draw media icon in center
-      ctx.fillStyle = "#ffffff"; // White icon
-      ctx.font = "20px Arial, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
+      // Draw icon based on media type (scale with clip size)
+      const iconSize = Math.min(height * 0.6, 32); // Scale with height, max 32px
+      const iconX = x + width / 2;
+      const iconY = y + height / 2;
       
-      let iconText = "🎬"; // Default video icon
+      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.lineWidth = 1.5;
+      
       if (mediaType === 'audio') {
-        iconText = "🎵"; // Audio icon
+        // Draw audio waveform icon
+        const waveWidth = iconSize;
+        const waveHeight = iconSize * 0.6;
+        const barCount = 5;
+        const barWidth = waveWidth / (barCount * 2);
+        
+        for (let i = 0; i < barCount; i++) {
+          const barHeight = (Math.sin(i) + 1) * (waveHeight / 2);
+          const barX = iconX - waveWidth / 2 + i * barWidth * 2;
+          const barY = iconY - barHeight / 2;
+          
+          ctx.fillRect(barX, barY, barWidth, barHeight);
+        }
       } else if (mediaType === 'image') {
-        iconText = "🖼️"; // Image icon
+        // Draw image icon (picture frame)
+        const frameSize = iconSize;
+        ctx.strokeRect(iconX - frameSize / 2, iconY - frameSize / 2, frameSize, frameSize);
+        
+        // Draw mountain and sun inside
+        ctx.beginPath();
+        ctx.moveTo(iconX - frameSize / 4, iconY + frameSize / 4);
+        ctx.lineTo(iconX, iconY - frameSize / 8);
+        ctx.lineTo(iconX + frameSize / 4, iconY + frameSize / 4);
+        ctx.fill();
+        
+        // Sun
+        ctx.beginPath();
+        ctx.arc(iconX + frameSize / 4, iconY - frameSize / 4, frameSize / 8, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Draw play/video icon (rounded triangle pointing right)
+        const triangleSize = iconSize * 0.5; // Smaller size
+        
+        ctx.save();
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.lineWidth = 4; // Thicker line for more visible rounding
+        
+        ctx.beginPath();
+        // Triangle pointing right (play icon) - smaller and more compact
+        ctx.moveTo(iconX - triangleSize / 2, iconY - triangleSize / 2); // Top left
+        ctx.lineTo(iconX + triangleSize / 2, iconY); // Right point (center)
+        ctx.lineTo(iconX - triangleSize / 2, iconY + triangleSize / 2); // Bottom left
+        ctx.closePath();
+        ctx.fill();
+        
+        // Stroke with same color to create rounded effect
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.stroke();
+        ctx.restore();
       }
-      
-      ctx.fillText(iconText, x + width / 2, y + height / 2);
-      
-      // Reset text alignment
-      ctx.textAlign = "left";
-      ctx.textBaseline = "alphabetic";
     }
 
    }, [samples, accepted, preview, duration, timelineWidth, timelineHeight, thumbnails, currentTime, zoom, pan, formatTime, thumbnailDimensions, isScrubbing, isHoveringRuler, clips, tracks, trackHeight, timeRulerHeight, dragPreview]);
@@ -1921,8 +1989,9 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
               const mediaFile = customDragData.mediaFile;
               const clipDuration = mediaFile.duration || 10; // Default 10 seconds if no duration
               
-              // Calculate preview width based on clip duration
-              const previewWidth = Math.max(80, (clipDuration / effectiveDuration) * (timelineWidth * zoom));
+              // Calculate preview width based on clip duration (matching actual clip rendering formula)
+              // This matches how real clips are drawn: (clipEndTime - clipStartTime) / effectiveDuration * (timelineWidth * zoom)
+              const previewWidth = Math.max(20, (clipDuration / effectiveDuration) * (timelineWidth * zoom));
               
               // Calculate preview position (center on mouse x, align to track)
               const track = targetTrack as Track;
@@ -1931,9 +2000,9 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
               
               // Determine media type
               let mediaType: 'video' | 'audio' | 'image' = 'video';
-              if (mediaFile.type === 'Audio') {
+              if (mediaFile.type === 'audio') {
                 mediaType = 'audio';
-              } else if (mediaFile.type === 'Image') {
+              } else if (mediaFile.type === 'image') {
                 mediaType = 'image';
               }
               
@@ -2589,8 +2658,8 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
                   const mediaFile = data.mediaFile;
                   const clipDuration = mediaFile.duration || 10; // Default 10 seconds if no duration
                   
-                  // Calculate preview width based on clip duration
-                  const previewWidth = Math.max(80, (clipDuration / effectiveDuration) * (timelineWidth * zoom));
+                  // Calculate preview width based on clip duration (matching actual clip rendering formula)
+                  const previewWidth = Math.max(20, (clipDuration / effectiveDuration) * (timelineWidth * zoom));
                   
                   // Calculate preview position (center on mouse x, align to track)
                   const track = targetTrack as Track;

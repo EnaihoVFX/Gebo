@@ -58,9 +58,9 @@ export type ChatMessage = {
 };
 
 export type ChatAction = {
-  type: "accept" | "reject" | "custom";
+  type: "accept" | "reject" | "custom" | "upload_video" | "upload_media" | "confirm_proceed";
   label: string;
-  onClick: () => void;
+  onClick?: () => void;
 };
 
 export type MediaFile = {

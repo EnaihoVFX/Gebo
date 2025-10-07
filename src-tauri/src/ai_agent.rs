@@ -106,7 +106,7 @@ impl AIAgentState {
 // Global AI Agent state
 lazy_static::lazy_static! {
     static ref AI_AGENT_STATE: AIAgentState = AIAgentState::new();
-    static ref GEMINI_API_KEY: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(Some("AIzaSyDfZmNLxzrECAS6ICvqlut82yt-SK1AX7o".to_string())));
+    static ref GEMINI_API_KEY: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(Some("AIzaSyDoxGpccB7i6t8xS3H1jQYVcvrbuIMxJ7k".to_string())));
 }
 
 /// Process a user message with the AI agent using Gemini API with streaming support
@@ -142,6 +142,9 @@ where
     // Check if API key is available
     if api_key.is_none() {
         log::error!("No Gemini API key configured. Please set your API key first.");
+        // Release processing lock before returning error
+        let mut is_processing = AI_AGENT_STATE.is_processing.lock().await;
+        *is_processing = false;
         return Err("No Gemini API key configured. Please set your API key in the settings.".to_string());
     }
     
@@ -152,7 +155,7 @@ where
     
     // Create project context string with transcript information
     let mut project_context = format!(
-        "Project: {} (Duration: {}s, Tracks: {}, Clips: {}, Accepted Cuts: {}, Preview Cuts: {})",
+        "Project: {} (Timeline Duration: {}s, Tracks: {}, Clips: {}, Accepted Cuts: {}, Preview Cuts: {})",
         context.current_project.file_path,
         context.current_project.duration,
         context.current_project.tracks.len(),
@@ -160,6 +163,27 @@ where
         context.current_project.accepted_cuts.len(),
         context.current_project.preview_cuts.len()
     );
+
+    // Add detailed clip information
+    if !context.current_project.clips.is_empty() {
+        project_context.push_str("\n\nClips on Timeline:");
+        for (i, clip) in context.current_project.clips.iter().enumerate() {
+            if let Ok(clip_obj) = serde_json::from_value::<serde_json::Value>(clip.clone()) {
+                let name = clip_obj.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown");
+                let offset = clip_obj.get("offset").and_then(|o| o.as_f64()).unwrap_or(0.0);
+                let start_time = clip_obj.get("startTime").and_then(|s| s.as_f64()).unwrap_or(0.0);
+                let end_time = clip_obj.get("endTime").and_then(|e| e.as_f64()).unwrap_or(0.0);
+                let clip_duration = end_time - start_time;
+                let timeline_end = offset + clip_duration;
+                
+                project_context.push_str(&format!(
+                    "\n  Clip {}: \"{}\" - Timeline position: {:.2}s to {:.2}s (Duration: {:.2}s)",
+                    i + 1, name, offset, timeline_end, clip_duration
+                ));
+            }
+        }
+        project_context.push_str("\n\nIMPORTANT: When proposing edits, ONLY suggest cuts within the actual clip boundaries shown above. Do NOT suggest cuts outside these time ranges.");
+    }
 
     // Add video analysis and transcript information if available
     let mut content_summary = String::new();
@@ -250,6 +274,24 @@ where
         project_context.push_str(&content_summary);
     }
 
+    // Add conversation history to context
+    if !context.conversation_history.is_empty() {
+        project_context.push_str(&format!("\n\nConversation History (last {} messages):", context.conversation_history.len()));
+        // Take last 10 messages for context (to avoid token limits)
+        for (i, msg) in context.conversation_history.iter().rev().take(10).rev().enumerate() {
+            if let Ok(msg_obj) = serde_json::from_value::<serde_json::Value>(msg.clone()) {
+                let msg_type = msg_obj.get("type").and_then(|r| r.as_str()).unwrap_or("unknown");
+                let content = msg_obj.get("content").and_then(|c| c.as_str()).unwrap_or("");
+                let role = if msg_type == "user" { "User" } else { "Assistant" };
+                
+                // Only include non-empty messages
+                if !content.is_empty() {
+                    project_context.push_str(&format!("\n{}) {}: {}", i + 1, role, content));
+                }
+            }
+        }
+    }
+
     // Get AI response from Gemini with streaming
     let ai_response = gemini_client.generate_video_editing_response_stream(&user_message, &project_context, |token| {
         on_token(token);
@@ -264,6 +306,12 @@ where
         } else if e.contains("API request failed") {
             log::error!("This appears to be an API connectivity issue. Check your API key and internet connection.");
         }
+        
+        // Release processing lock before returning error
+        tokio::spawn(async {
+            let mut is_processing = AI_AGENT_STATE.is_processing.lock().await;
+            *is_processing = false;
+        });
         
         e
     })?;
@@ -347,6 +395,9 @@ pub async fn process_message(
     // Check if API key is available
     if api_key.is_none() {
         log::error!("No Gemini API key configured. Please set your API key first.");
+        // Release processing lock before returning error
+        let mut is_processing = AI_AGENT_STATE.is_processing.lock().await;
+        *is_processing = false;
         return Err("No Gemini API key configured. Please set your API key in the settings.".to_string());
     }
     
@@ -357,7 +408,7 @@ pub async fn process_message(
     
     // Create project context string with transcript information
     let mut project_context = format!(
-        "Project: {} (Duration: {}s, Tracks: {}, Clips: {}, Accepted Cuts: {}, Preview Cuts: {})",
+        "Project: {} (Timeline Duration: {}s, Tracks: {}, Clips: {}, Accepted Cuts: {}, Preview Cuts: {})",
         context.current_project.file_path,
         context.current_project.duration,
         context.current_project.tracks.len(),
@@ -365,6 +416,27 @@ pub async fn process_message(
         context.current_project.accepted_cuts.len(),
         context.current_project.preview_cuts.len()
     );
+
+    // Add detailed clip information
+    if !context.current_project.clips.is_empty() {
+        project_context.push_str("\n\nClips on Timeline:");
+        for (i, clip) in context.current_project.clips.iter().enumerate() {
+            if let Ok(clip_obj) = serde_json::from_value::<serde_json::Value>(clip.clone()) {
+                let name = clip_obj.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown");
+                let offset = clip_obj.get("offset").and_then(|o| o.as_f64()).unwrap_or(0.0);
+                let start_time = clip_obj.get("startTime").and_then(|s| s.as_f64()).unwrap_or(0.0);
+                let end_time = clip_obj.get("endTime").and_then(|e| e.as_f64()).unwrap_or(0.0);
+                let clip_duration = end_time - start_time;
+                let timeline_end = offset + clip_duration;
+                
+                project_context.push_str(&format!(
+                    "\n  Clip {}: \"{}\" - Timeline position: {:.2}s to {:.2}s (Duration: {:.2}s)",
+                    i + 1, name, offset, timeline_end, clip_duration
+                ));
+            }
+        }
+        project_context.push_str("\n\nIMPORTANT: When proposing edits, ONLY suggest cuts within the actual clip boundaries shown above. Do NOT suggest cuts outside these time ranges.");
+    }
 
     // Add video analysis and transcript information if available
     let mut content_summary = String::new();
@@ -455,6 +527,24 @@ pub async fn process_message(
         project_context.push_str(&content_summary);
     }
 
+    // Add conversation history to context
+    if !context.conversation_history.is_empty() {
+        project_context.push_str(&format!("\n\nConversation History (last {} messages):", context.conversation_history.len()));
+        // Take last 10 messages for context (to avoid token limits)
+        for (i, msg) in context.conversation_history.iter().rev().take(10).rev().enumerate() {
+            if let Ok(msg_obj) = serde_json::from_value::<serde_json::Value>(msg.clone()) {
+                let msg_type = msg_obj.get("type").and_then(|r| r.as_str()).unwrap_or("unknown");
+                let content = msg_obj.get("content").and_then(|c| c.as_str()).unwrap_or("");
+                let role = if msg_type == "user" { "User" } else { "Assistant" };
+                
+                // Only include non-empty messages
+                if !content.is_empty() {
+                    project_context.push_str(&format!("\n{}) {}: {}", i + 1, role, content));
+                }
+            }
+        }
+    }
+
     // Get AI response from Gemini
     let ai_response = gemini_client.generate_video_editing_response(&user_message, &project_context).await.map_err(|e| {
         log::error!("Gemini API failed with error: {}", e);
@@ -467,6 +557,12 @@ pub async fn process_message(
         } else if e.contains("API request failed") {
             log::error!("This appears to be an API connectivity issue. Check your API key and internet connection.");
         }
+        
+        // Release processing lock before returning error
+        tokio::spawn(async {
+            let mut is_processing = AI_AGENT_STATE.is_processing.lock().await;
+            *is_processing = false;
+        });
         
         e
     })?;
@@ -1211,6 +1307,14 @@ async fn generate_mock_response(user_message: &str, context: &AgentContext) -> V
                     label: "Reject Changes".to_string(),
                 },
             ])
+        } else if !has_clips {
+            // Suggest uploading a video when no clips are available
+            Some(vec![
+                Action {
+                    action_type: "upload_video".to_string(),
+                    label: "Upload Video".to_string(),
+                },
+            ])
         } else {
             None
         };
@@ -1371,6 +1475,13 @@ pub fn set_api_key(api_key: String) -> Result<(), String> {
 pub async fn get_api_key() -> Result<Option<String>, String> {
     let key_guard = GEMINI_API_KEY.lock().await;
     Ok(key_guard.clone())
+}
+
+/// Reset the processing lock (for recovery from stuck states)
+pub async fn reset_processing_lock() -> Result<(), String> {
+    let mut is_processing = AI_AGENT_STATE.is_processing.lock().await;
+    *is_processing = false;
+    Ok(())
 }
 
 /// Generate a short, descriptive name for a chat based on the first user message

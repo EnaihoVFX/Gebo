@@ -257,6 +257,11 @@ async fn test_gemini_api() -> Result<String, String> {
   client.test_api_key().await
 }
 
+#[tauri::command]
+async fn reset_ai_agent() -> Result<(), String> {
+  ai_agent::reset_processing_lock().await
+}
+
 fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
@@ -294,6 +299,7 @@ fn main() {
       has_gemini_api_key,
       generate_chat_name,
       test_gemini_api,
+      reset_ai_agent,
       // Transcription commands
       transcribe_media_file,
       // Video analysis commands

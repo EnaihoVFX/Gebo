@@ -17,6 +17,7 @@ interface ChatProps {
   onApplyEditOperations?: (operations: EditOperation[]) => void;
   // AI Agent context
   agentContext?: AgentContext;
+  onUploadMedia?: () => Promise<any>;
 }
 
 export function Chat({
@@ -31,6 +32,7 @@ export function Chat({
   onRejectPlan,
   onApplyEditOperations,
   agentContext,
+  onUploadMedia,
 }: ChatProps) {
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -150,10 +152,16 @@ export function Chat({
       // Add the streaming message to the chat
       onUpdateMessages([...updatedMessages, assistantMessage]);
 
+      // Enrich agent context with conversation history
+      const enrichedContext = {
+        ...agentContext,
+        conversationHistory: Array.isArray(messages) ? messages : [],
+      };
+
       try {
         await aiAgent.processMessage(
           command,
-          agentContext,
+          enrichedContext,
           (token: StreamingToken) => {
             // Update the streaming message with new token data
             const currentMessages = currentMessagesRef.current;
@@ -223,7 +231,7 @@ export function Chat({
               onApplyEditOperations(response.finalEdits);
             }
           },
-          (error: Error) => {
+          async (error: Error) => {
             // Handle error
             console.error('AI Agent error:', error);
             setIsLoading(false);
@@ -234,13 +242,24 @@ export function Chat({
             if (messageIndex === -1) return;
 
             const updatedMessages = [...currentMessages];
-            let errorMessage = error.message;
+            // Handle error object safely - it might be a string or Error object
+            const errorText = typeof error === 'string' ? error : (error?.message || String(error));
+            let errorMessage = errorText;
             
             // Provide helpful error messages
-            if (error.message.includes("No Gemini API key configured")) {
+            if (errorText.includes("No Gemini API key configured")) {
               errorMessage = "I need a Gemini API key to work properly. Please set your API key in the settings to enable AI-powered video editing.";
-            } else if (error.message.includes("API request failed")) {
+            } else if (errorText.includes("API request failed")) {
               errorMessage = "I'm having trouble connecting to the AI service. Please check your internet connection and API key.";
+            } else if (errorText.includes("Agent is already processing")) {
+              // Automatically reset the processing lock
+              try {
+                await aiAgent.resetProcessingLock();
+                errorMessage = "The AI agent was stuck processing. I've reset it - please try your request again.";
+              } catch (resetError) {
+                console.error('Failed to reset AI agent:', resetError);
+                errorMessage = "The AI agent is busy processing another request. Please wait a moment and try again.";
+              }
             }
             
             updatedMessages[messageIndex] = {
@@ -439,7 +458,12 @@ export function Chat({
             }}
             className="transition-all duration-300 opacity-100"
           >
-            <ChatMessage message={message} />
+            <ChatMessage 
+              message={message} 
+              onUploadMedia={onUploadMedia}
+              onAcceptPlan={onAcceptPlan}
+              onRejectPlan={onRejectPlan}
+            />
           </div>
         ))}
         

@@ -5,9 +5,12 @@ import type { ChatMessage as ChatMessageType, ThinkingStep, EditOperation } from
 
 interface ChatMessageProps {
   message: ChatMessageType;
+  onUploadMedia?: () => Promise<any>;
+  onAcceptPlan?: () => void;
+  onRejectPlan?: () => void;
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, onUploadMedia, onAcceptPlan, onRejectPlan }: ChatMessageProps) {
   const [hasAutoPlayed, setHasAutoPlayed] = useState(false);
   const playerRef = useRef<any>(null);
 
@@ -28,9 +31,12 @@ export function ChatMessage({ message }: ChatMessageProps) {
   }, [message.hasVideoPreview, message.videoPreview, hasAutoPlayed]);
 
   const renderContent = (content: string) => {
-    // Simple markdown-like rendering for code blocks and inline code
+    // Simple markdown-like rendering for code blocks, inline code, and bold text
+    // First split by code blocks (backticks)
     const parts = content.split(/(`[^`]+`)/g);
+    
     return parts.map((part, index) => {
+      // If it's a code block, render it
       if (part.startsWith('`') && part.endsWith('`')) {
         return (
           <code key={index} className="bg-editor-bg-glass-tertiary backdrop-blur-xl px-2 py-1 rounded-lg text-xs font-mono text-editor-status-info border border-editor-border-tertiary shadow-[0_1px_4px_rgba(0,0,0,0.1)]">
@@ -38,7 +44,19 @@ export function ChatMessage({ message }: ChatMessageProps) {
           </code>
         );
       }
-      return part;
+      
+      // Otherwise, look for bold text (**text**)
+      const boldParts = part.split(/(\*\*[^*]+\*\*)/g);
+      return boldParts.map((boldPart, boldIndex) => {
+        if (boldPart.startsWith('**') && boldPart.endsWith('**')) {
+          return (
+            <strong key={`${index}-${boldIndex}`} className="font-semibold text-editor-text-primary">
+              {boldPart.slice(2, -2)}
+            </strong>
+          );
+        }
+        return <span key={`${index}-${boldIndex}`}>{boldPart}</span>;
+      });
     });
   };
 
@@ -142,27 +160,70 @@ export function ChatMessage({ message }: ChatMessageProps) {
 
     return (
       <div className="flex gap-3 mt-4">
-        {message.actions.map((action, index) => (
-          <button
-            key={index}
-            onClick={action.onClick}
-            className={`group px-4 py-2.5 text-sm rounded-xl transition-all duration-200 border flex items-center gap-2 font-medium shadow-[0_2px_8px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden backdrop-blur-xl ${
-              action.type === "accept"
-                ? "bg-editor-status-success/10 border-editor-status-success/20 text-editor-status-success hover:bg-editor-status-success/20 hover:border-editor-status-success/30 hover:scale-105"
-                : action.type === "reject"
-                ? "bg-editor-status-error/10 border-editor-status-error/20 text-editor-status-error hover:bg-editor-status-error/20 hover:border-editor-status-error/30 hover:scale-105"
-                : "bg-editor-bg-glass-secondary border-editor-border-secondary text-editor-text-secondary hover:bg-editor-interactive-hover hover:border-editor-border-accent hover:scale-105"
-            }`}
-          >
-            <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-xl"></div>
-            {action.type === "accept" ? (
-              <Check className="w-4 h-4 relative z-10" />
-            ) : action.type === "reject" ? (
-              <X className="w-4 h-4 relative z-10" />
-            ) : null}
-            <span className="relative z-10">{action.label}</span>
-          </button>
-        ))}
+        {message.actions.map((action, index) => {
+          // Determine the actual onClick handler based on action type
+          const handleClick = () => {
+            // Try the action's onClick first (for legacy support)
+            if (action.onClick && typeof action.onClick === 'function') {
+              action.onClick();
+              return;
+            }
+            
+            // Otherwise, map action types to handlers
+            switch (action.type) {
+              case 'accept':
+                if (onAcceptPlan) onAcceptPlan();
+                break;
+              case 'reject':
+                if (onRejectPlan) onRejectPlan();
+                break;
+              case 'upload_media':
+              case 'upload_video':
+                if (onUploadMedia) {
+                  onUploadMedia().catch(error => {
+                    console.error("Failed to upload media:", error);
+                  });
+                }
+                break;
+              case 'confirm_proceed':
+                // For confirm_proceed, we don't need a handler - user should type their response in chat
+                console.log('User should respond yes/no in chat for confirmation');
+                break;
+              case 'custom':
+                // Check if the label suggests an upload action
+                if (action.label.toLowerCase().includes('upload') && onUploadMedia) {
+                  onUploadMedia().catch(error => {
+                    console.error("Failed to upload media:", error);
+                  });
+                }
+                break;
+              default:
+                console.warn(`Unknown action type: ${action.type}`);
+            }
+          };
+
+          return (
+            <button
+              key={index}
+              onClick={handleClick}
+              className={`group px-4 py-2.5 text-sm rounded-xl transition-all duration-200 border flex items-center gap-2 font-medium shadow-[0_2px_8px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.1)] relative overflow-hidden backdrop-blur-xl ${
+                action.type === "accept"
+                  ? "bg-editor-status-success/10 border-editor-status-success/20 text-editor-status-success hover:bg-editor-status-success/20 hover:border-editor-status-success/30 hover:scale-105"
+                  : action.type === "reject"
+                  ? "bg-editor-status-error/10 border-editor-status-error/20 text-editor-status-error hover:bg-editor-status-error/20 hover:border-editor-status-error/30 hover:scale-105"
+                  : "bg-editor-bg-glass-secondary border-editor-border-secondary text-editor-text-secondary hover:bg-editor-interactive-hover hover:border-editor-border-accent hover:scale-105"
+              }`}
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-xl"></div>
+              {action.type === "accept" ? (
+                <Check className="w-4 h-4 relative z-10" />
+              ) : action.type === "reject" ? (
+                <X className="w-4 h-4 relative z-10" />
+              ) : null}
+              <span className="relative z-10">{action.label}</span>
+            </button>
+          );
+        })}
       </div>
     );
   };

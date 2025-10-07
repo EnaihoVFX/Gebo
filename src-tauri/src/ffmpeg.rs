@@ -79,12 +79,21 @@ pub fn ffprobe(input: &str) -> Result<Probe> {
     let den: f64 = parts.next().unwrap_or("1").parse().unwrap_or(1.0);
     let fps = if den > 0.0 { num / den } else { 30.0 };
     
-    (
-      v["width"].as_u64().unwrap_or(1920) as u32,
-      v["height"].as_u64().unwrap_or(1080) as u32,
-      fps,
-      v["codec_name"].as_str().unwrap_or("h264").to_string()
-    )
+    // Get width and height - if they're not present or are 0, treat as audio-only
+    let w = v["width"].as_u64().unwrap_or(0) as u32;
+    let h = v["height"].as_u64().unwrap_or(0) as u32;
+    
+    // If width or height is 0, this is likely an audio file with an embedded image
+    if w == 0 || h == 0 {
+      (0, 0, 0.0, "none".to_string())
+    } else {
+      (
+        w,
+        h,
+        fps,
+        v["codec_name"].as_str().unwrap_or("h264").to_string()
+      )
+    }
   } else {
     // Audio-only file
     (0, 0, 0.0, "none".to_string())

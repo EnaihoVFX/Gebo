@@ -59,8 +59,8 @@ impl GeminiClient {
     pub fn new(api_key: String) -> Self {
         Self {
             api_key,
-            base_url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent".to_string(),
-            stream_base_url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent".to_string(),
+            base_url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent".to_string(),
+            stream_base_url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent".to_string(),
         }
     }
 
@@ -234,6 +234,34 @@ Please respond with ONLY a valid JSON object (no additional text, explanations, 
   ]
 }}
 
+Action types can be: "accept", "reject", "upload_video", "confirm_proceed", "custom"
+- Use "upload_video" when user needs to add media but has none
+- Use "accept"/"reject" ONLY after changes have been applied and preview is shown
+
+IMPORTANT WORKFLOW:
+When user requests an edit operation:
+1. FIRST RESPONSE: Describe what you plan to do, ask for confirmation, return EMPTY edit_operations array and NO actions
+2. WAIT for user to respond "yes", "no", "proceed", etc.
+3. SECOND RESPONSE (after confirmation): Execute the changes, return edit_operations, and include "accept"/"reject" actions
+
+Example first response:
+{{
+  "thinking_steps": [...],
+  "response_content": "I can remove all silent parts longer than 2 seconds from your video. This will make it more concise and engaging. Would you like me to proceed with this?",
+  "edit_operations": [],
+  "has_video_preview": false,
+  "actions": null
+}}
+
+Example second response (after user says yes):
+{{
+  "thinking_steps": [...],
+  "response_content": "Great! I've identified and removed the silent segments. Please review the preview below.",
+  "edit_operations": [...actual operations...],
+  "has_video_preview": true,
+  "actions": [{{"action_type": "accept", "label": "Accept Changes"}}, {{"action_type": "reject", "label": "Reject Changes"}}]
+}}
+
 Focus on video editing operations like:
 - Removing silence (remove silence > X seconds)
 - Cutting segments (cut X - Y seconds)
@@ -309,6 +337,34 @@ Please respond with ONLY a valid JSON object (no additional text, explanations, 
       "label": "Accept Changes"
     }}
   ]
+}}
+
+Action types can be: "accept", "reject", "upload_video", "confirm_proceed", "custom"
+- Use "upload_video" when user needs to add media but has none
+- Use "accept"/"reject" ONLY after changes have been applied and preview is shown
+
+IMPORTANT WORKFLOW:
+When user requests an edit operation:
+1. FIRST RESPONSE: Describe what you plan to do, ask for confirmation, return EMPTY edit_operations array and NO actions
+2. WAIT for user to respond "yes", "no", "proceed", etc.
+3. SECOND RESPONSE (after confirmation): Execute the changes, return edit_operations, and include "accept"/"reject" actions
+
+Example first response:
+{{
+  "thinking_steps": [...],
+  "response_content": "I can remove all silent parts longer than 2 seconds from your video. This will make it more concise and engaging. Would you like me to proceed with this?",
+  "edit_operations": [],
+  "has_video_preview": false,
+  "actions": null
+}}
+
+Example second response (after user says yes):
+{{
+  "thinking_steps": [...],
+  "response_content": "Great! I've identified and removed the silent segments. Please review the preview below.",
+  "edit_operations": [...actual operations...],
+  "has_video_preview": true,
+  "actions": [{{"action_type": "accept", "label": "Accept Changes"}}, {{"action_type": "reject", "label": "Reject Changes"}}]
 }}
 
 Focus on video editing operations like:

@@ -578,7 +578,7 @@ export class AIAgent {
         label: response.video_preview.label,
       } : undefined,
       actions: response.actions?.map((action: any) => ({
-        type: action.action_type as "accept" | "reject" | "custom",
+        type: action.action_type as "accept" | "reject" | "custom" | "upload_video" | "upload_media" | "confirm_proceed",
         label: action.label,
         onClick: () => {
           console.log(`Action clicked: ${action.action_type}`);
@@ -610,6 +610,20 @@ export class AIAgent {
    */
   isCurrentlyProcessing(): boolean {
     return this.isProcessing;
+  }
+
+  /**
+   * Reset the AI agent processing lock (for recovery from stuck states)
+   */
+  async resetProcessingLock(): Promise<void> {
+    try {
+      await invoke('reset_ai_agent');
+      this.isProcessing = false;
+      console.log('AI agent processing lock has been reset');
+    } catch (error) {
+      console.error('Failed to reset AI agent:', error);
+      throw error;
+    }
   }
 }
 

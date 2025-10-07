@@ -19,6 +19,7 @@ interface SidebarProps {
   onAcceptPlan: () => void;
   onRejectPlan: () => void;
   agentContext?: AgentContext;
+  onUploadMedia?: () => Promise<any>;
 }
 
 export function Sidebar({
@@ -29,6 +30,7 @@ export function Sidebar({
   onAcceptPlan,
   onRejectPlan,
   agentContext,
+  onUploadMedia,
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   
@@ -308,6 +310,7 @@ export function Sidebar({
               onAcceptPlan={onAcceptPlan}
               onRejectPlan={onRejectPlan}
               agentContext={agentContext}
+              onUploadMedia={onUploadMedia}
             />
           </div>
         </>
