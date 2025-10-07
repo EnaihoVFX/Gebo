@@ -248,39 +248,117 @@ export function VideoTimeline({
       ctx.restore();
     }
 
-    // Draw enhanced time markers with sophisticated styling
-    const timeInterval = duration / 10; // 10 time markers
-    for (let i = 0; i <= 10; i++) {
-      const time = i * timeInterval;
+    // Draw enhanced time markers with three-tier visual hierarchy
+    const rulerHeight = 20; // Height of ruler area at bottom
+    const rulerStartY = timelineHeight - rulerHeight;
+    
+    // Calculate appropriate time intervals
+    const numMajorMarkers = 10;
+    const majorInterval = duration / numMajorMarkers;
+    const minorInterval = majorInterval / 5; // 5 minor ticks per major interval
+    
+    // Draw minor markers first (so major markers overlay them)
+    for (let time = 0; time <= duration; time += minorInterval) {
+      const x = (time / duration) * timelineWidth;
+      const isMajor = Math.abs(time % majorInterval) < 0.001;
+      
+      if (!isMajor) {
+        // Minor markers - very short, very light ticks (20% of ruler height)
+        const markerHeight = rulerHeight * 0.20;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.20)"; // Much lighter
+        ctx.lineWidth = 0.75; // Thinner
+        ctx.lineCap = "butt";
+        ctx.beginPath();
+        ctx.moveTo(x, timelineHeight - markerHeight);
+        ctx.lineTo(x, timelineHeight);
+        ctx.stroke();
+      }
+    }
+    
+    // Draw major markers with labels
+    for (let i = 0; i <= numMajorMarkers; i++) {
+      const time = i * majorInterval;
       const x = (time / duration) * timelineWidth;
       
-      // Enhanced marker styling
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.6)"; // Enhanced visibility
-      ctx.lineWidth = 1.5;
+      // Major markers - shorter, lighter markers (50% of ruler height)
+      const markerHeight = rulerHeight * 0.5;
+      const markerStartY = timelineHeight - markerHeight;
+      
+      ctx.shadowColor = "rgba(0, 0, 0, 0.3)";
+      ctx.shadowBlur = 2;
+      ctx.shadowOffsetX = 0.5;
+      ctx.shadowOffsetY = 0;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.45)"; // Much lighter
+      ctx.lineWidth = 1.5; // Thinner
+      ctx.lineCap = "round";
       ctx.beginPath();
-      ctx.moveTo(x, timelineHeight - 20);
+      ctx.moveTo(x, markerStartY);
       ctx.lineTo(x, timelineHeight);
       ctx.stroke();
       
-      // Add subtle shadow for depth
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.3)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, timelineHeight - 20 + 0.5);
-      ctx.lineTo(x + 0.5, timelineHeight + 0.5);
-      ctx.stroke();
+      // Reset shadow
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
       
-      // Draw enhanced time labels with better typography
-      ctx.font = "10px 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace";
-      
-      // Add text shadow for better readability
-      ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-      ctx.fillText(formatTime(time), x + 3, timelineHeight - 3);
-      
-      // Main text with enhanced contrast
-      ctx.fillStyle = "rgba(255, 255, 255, 0.9)"; // Enhanced text visibility
-      ctx.fillText(formatTime(time), x + 2, timelineHeight - 4);
+      // Draw enhanced time labels with modern typography
+      if (x < timelineWidth - 60) { // Leave margin for last label
+        const fontSize = 11;
+        const fontWeight = 600; // Semi-bold
+        ctx.font = `${fontWeight} ${fontSize}px -apple-system, BlinkMacSystemFont, 'SF Pro', 'Segoe UI', 'Inter', 'Roboto', system-ui, sans-serif`;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+        
+        const showMs = duration < 60; // Show milliseconds for short videos
+        const timeText = formatTime(time, showMs);
+        const textY = rulerStartY + 2;
+        const textX = x + 3;
+        
+        // Enhanced shadow with blur for better readability
+        ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.fillStyle = "rgba(0, 0, 0, 0.9)";
+        ctx.fillText(timeText, textX + 1, textY + 1);
+        
+        // Reset shadow
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+        
+        // Secondary shadow for depth
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.fillText(timeText, textX + 0.5, textY + 0.5);
+        
+        // Main text with gradient fill
+        const textGradient = ctx.createLinearGradient(textX, textY, textX, textY + fontSize);
+        textGradient.addColorStop(0, "rgba(255, 255, 255, 1.0)");
+        textGradient.addColorStop(0.5, "rgba(245, 245, 250, 1.0)");
+        textGradient.addColorStop(1, "rgba(235, 240, 245, 0.98)");
+        ctx.fillStyle = textGradient;
+        ctx.fillText(timeText, textX, textY);
+        
+        // Subtle highlight
+        ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+        ctx.fillText(timeText, textX - 0.3, textY - 0.3);
+      }
     }
+    
+    // Add refined ruler border for clarity
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, rulerStartY);
+    ctx.lineTo(timelineWidth, rulerStartY);
+    ctx.stroke();
+    
+    // Add subtle shadow below ruler for depth
+    const rulerShadowGradient = ctx.createLinearGradient(0, rulerStartY, 0, rulerStartY + 4);
+    rulerShadowGradient.addColorStop(0, "rgba(0, 0, 0, 0.2)");
+    rulerShadowGradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = rulerShadowGradient;
+    ctx.fillRect(0, rulerStartY, timelineWidth, 4);
 
     // Enhanced border system with multiple layers
     // Outer border with enhanced visibility
@@ -299,9 +377,22 @@ export function VideoTimeline({
     ctx.strokeRect(1, 1, timelineWidth - 2, timelineHeight - 2);
   }, [samples, accepted, preview, duration, timelineWidth, timelineHeight, thumbnails, currentTime, isHovering]);
 
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
+  const formatTime = (seconds: number, showMilliseconds: boolean = false): string => {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
+    const ms = Math.floor((seconds % 1) * 100);
+    
+    if (showMilliseconds) {
+      if (hours > 0) {
+        return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+      }
+      return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+    }
+    
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 

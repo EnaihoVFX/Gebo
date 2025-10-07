@@ -276,11 +276,34 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     };
   }, [thumbnails.length, timelineWidth, timelineHeight, zoom, duration]);
 
-  const formatTime = useCallback((seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
+  const formatTime = useCallback((seconds: number, showFrames: boolean = false, fps: number = 30): string => {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds % 1) * 100);
-    return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+    const ms = Math.floor((seconds % 1) * 1000);
+    const frames = Math.floor((seconds % 1) * fps);
+    
+    // Show frames when zoomed in very close (sub-second precision needed)
+    if (showFrames && fps > 0) {
+      if (hours > 0) {
+        return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
+      }
+      return `${mins}:${secs.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
+    }
+    
+    // Show milliseconds for medium zoom
+    if (ms > 0 || seconds < 1) {
+      if (hours > 0) {
+        return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0').slice(0, 2)}`;
+      }
+      return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0').slice(0, 2)}`;
+    }
+    
+    // Standard time format
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   }, []);
 
   // Calculate effective duration based on main video or clips
@@ -718,26 +741,48 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     
     
     
-     // Draw enhanced time ruler with sophisticated glassmorphic design matching sidebar
-     // Create multi-layer glassmorphic background with depth and sophistication
+     // Draw modern, refined time ruler with sophisticated design
+     // Create premium glassmorphic background with rich depth
      const gradient = ctx.createLinearGradient(0, 0, 0, timeRulerHeight);
-     gradient.addColorStop(0, "rgba(63, 63, 70, 0.45)"); // Enhanced top opacity for depth
-     gradient.addColorStop(0.3, "rgba(55, 55, 60, 0.35)"); // Mid-tone for gradient
-     gradient.addColorStop(1, "rgba(39, 39, 42, 0.30)"); // Enhanced bottom opacity
+     gradient.addColorStop(0, "rgba(75, 75, 85, 0.65)"); // Richer top for better contrast
+     gradient.addColorStop(0.4, "rgba(65, 65, 75, 0.55)"); // Smooth transition
+     gradient.addColorStop(1, "rgba(50, 50, 60, 0.50)"); // Deeper bottom
      ctx.fillStyle = gradient;
      ctx.fillRect(0, 0, timelineWidth, timeRulerHeight);
      
-     // Add subtle backdrop blur effect simulation with layered gradients
-     const blurGradient = ctx.createLinearGradient(0, 0, 0, timeRulerHeight);
-     blurGradient.addColorStop(0, "rgba(255, 255, 255, 0.08)");
-     blurGradient.addColorStop(0.5, "rgba(255, 255, 255, 0.03)");
-     blurGradient.addColorStop(1, "rgba(255, 255, 255, 0.05)");
-     ctx.fillStyle = blurGradient;
+     // Add refined highlight overlay for premium glass effect
+     const highlightGradient = ctx.createLinearGradient(0, 0, 0, timeRulerHeight);
+     highlightGradient.addColorStop(0, "rgba(255, 255, 255, 0.12)"); // Brighter top shine
+     highlightGradient.addColorStop(0.3, "rgba(255, 255, 255, 0.06)");
+     highlightGradient.addColorStop(0.7, "rgba(255, 255, 255, 0.03)");
+     highlightGradient.addColorStop(1, "rgba(255, 255, 255, 0.08)"); // Subtle bottom reflection
+     ctx.fillStyle = highlightGradient;
      ctx.fillRect(0, 0, timelineWidth, timeRulerHeight);
      
+     // Add crisp top border with subtle glow
+     ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+     ctx.lineWidth = 1;
+     ctx.beginPath();
+     ctx.moveTo(0, 0.5);
+     ctx.lineTo(timelineWidth, 0.5);
+     ctx.stroke();
+     
+     // Add prominent bottom border for clear separation
+     ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+     ctx.lineWidth = 2;
+     ctx.beginPath();
+     ctx.moveTo(0, timeRulerHeight - 1);
+     ctx.lineTo(timelineWidth, timeRulerHeight - 1);
+     ctx.stroke();
+     
+     // Add refined shadow below ruler for depth
+     const shadowGradient = ctx.createLinearGradient(0, timeRulerHeight, 0, timeRulerHeight + 6);
+     shadowGradient.addColorStop(0, "rgba(0, 0, 0, 0.3)"); // Stronger shadow
+     shadowGradient.addColorStop(0.5, "rgba(0, 0, 0, 0.1)");
+     shadowGradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+     ctx.fillStyle = shadowGradient;
+     ctx.fillRect(0, timeRulerHeight, timelineWidth, 6);
     
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)"; // editor-border-secondary
-    ctx.lineWidth = 1;
     ctx.fillStyle = "rgba(255, 255, 255, 0.50)"; // editor-text-tertiary
     ctx.font = "10px monospace";
     
@@ -918,108 +963,184 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         // Check if this marker should be major (with label)
         const isMajorMarker = Math.abs(time % majorInterval) < 0.001 || Math.abs(time) < 0.001;
         
+        // Determine sub-major markers (intermediate hierarchy between major and minor)
+        // Sub-majors are at half the major interval (e.g., 0.5s if major is 1s)
+        const subMajorInterval = majorInterval / 2;
+        const isSubMajorMarker = !isMajorMarker && Math.abs(time % subMajorInterval) < 0.001;
         
-        
-        // Enhanced marker styling with better visual hierarchy
+        // Enhanced marker styling with three-tier visual hierarchy
         if (isMajorMarker) {
           majorMarkerCount++;
-          // Major markers - enhanced with sophisticated styling
-          // Main marker line with enhanced visibility
-          ctx.strokeStyle = "rgba(255, 255, 255, 0.75)"; // Enhanced visibility for major markers
-          ctx.lineWidth = 1.8;
+          
+          // Major markers - shorter, lighter markers (50% ruler height)
+          const markerHeight = timeRulerHeight * 0.5;
+          const markerStartY = timeRulerHeight - markerHeight;
+          
+          // Draw refined grid line extending into tracks area
+          const drawGridLines = pixelsPerSecond > 20; // Only show grid lines when reasonably zoomed in
+          if (drawGridLines) {
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.03)"; // Much lighter
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 6]); // More refined dash pattern
+            ctx.beginPath();
+            ctx.moveTo(x, timeRulerHeight);
+            ctx.lineTo(x, Math.min(timelineHeight, timeRulerHeight + 300)); // Extend 300px into tracks
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset dash
+          }
+          
+          // Lighter, more subtle marker line
+          // Shadow/glow layer first (for depth)
+          ctx.shadowColor = "rgba(0, 0, 0, 0.3)"; // Lighter shadow
+          ctx.shadowBlur = 2;
+          ctx.shadowOffsetX = 0.5;
+          ctx.shadowOffsetY = 0;
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.45)"; // Much lighter white
+          ctx.lineWidth = 1.5; // Thinner
+          ctx.lineCap = "round"; // Rounded ends for modern look
           ctx.beginPath();
-          ctx.moveTo(x, 0); // Start from top of ruler
+          ctx.moveTo(x, markerStartY);
           ctx.lineTo(x, timeRulerHeight);
           ctx.stroke();
           
-          // Add subtle glow effect for depth
-          ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
-          ctx.lineWidth = 3;
-          ctx.beginPath();
-          ctx.moveTo(x, 0); // Start from top of ruler
-          ctx.lineTo(x, timeRulerHeight);
-          ctx.stroke();
-          
-          // Add subtle shadow for depth
-          ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
-          ctx.lineWidth = 1.8;
-          ctx.beginPath();
-          ctx.moveTo(x + 0.5, 0.5); // Start from top of ruler
-          ctx.lineTo(x + 0.5, timeRulerHeight + 0.5);
-          ctx.stroke();
+          // Reset shadow
+          ctx.shadowColor = "transparent";
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
           
           // Draw text for major markers with better typography
           if (x >= 0 && x < timelineWidth - 60) { // Leave margin for text
             // Check if we have enough space from the last text to prevent overlapping
-            const textX = x + 2;
+            const textX = x + 3;
             if (textX - lastTextX >= minTextSpacing) {
-              // Improved text rendering logic - show more labels at high zoom
+              // Improved text rendering logic - adaptive based on zoom level
               let shouldRenderText = true;
               
-              // Show more labels at high zoom levels since we're using better intervals
+              // Adaptive label density based on zoom level
               if (pixelsPerSecond > 1000) {
-                // At 1000%+ zoom, show every 2nd label for good density with 0.1s intervals
+                // Extreme zoom: show every 2nd label to prevent clutter
                 shouldRenderText = (majorMarkerCount % 2 === 0);
               } else if (pixelsPerSecond > 500) {
-                // At 500%+ zoom, show every marker (all labels) with 0.2s intervals
-                shouldRenderText = true;
-              } else if (pixelsPerSecond > 200) {
-                // At 200%+ zoom, show every marker (all labels)
+                // Very high zoom: show all labels
                 shouldRenderText = true;
               } else if (pixelsPerSecond > 100) {
-                // At 100%+ zoom, show every marker (all labels)
+                // High zoom: show all labels
                 shouldRenderText = true;
+              } else if (pixelsPerSecond > 50) {
+                // Medium zoom: show all labels
+                shouldRenderText = true;
+              } else if (pixelsPerSecond > 20) {
+                // Normal zoom: show all labels
+                shouldRenderText = true;
+              } else if (pixelsPerSecond > 10) {
+                // Zoomed out: show most labels
+                shouldRenderText = true;
+              } else if (pixelsPerSecond > 5) {
+                // Very zoomed out: show every 2nd label
+                shouldRenderText = (majorMarkerCount % 2 === 0);
+              } else {
+                // Extremely zoomed out: show every 3rd label
+                shouldRenderText = (majorMarkerCount % 3 === 0);
               }
               
-              // Fallback: ensure we always show at least some labels
-              // If we haven't shown a label in a while, force show this one
-              if (!shouldRenderText && majorMarkerCount > 0 && majorMarkerCount % 5 === 0) {
+              // Ensure we always show the first label (time 0:00)
+              if (majorMarkerCount === 1 || time < 0.001) {
                 shouldRenderText = true;
               }
               
               if (shouldRenderText) {
-                // Set font and alignment
-                ctx.font = "11px 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace";
+                // Determine if we should show frames based on zoom level
+                const showFrames = pixelsPerSecond > 200 && timeInterval <= 0.1;
+                const fps = 30; // Standard frame rate, could be made configurable
+                
+                // Set enhanced font with better readability - larger, bolder
+                const fontSize = pixelsPerSecond > 200 ? 12 : pixelsPerSecond > 100 ? 11 : 10;
+                const fontWeight = 600; // Semi-bold for better readability
+                ctx.font = `${fontWeight} ${fontSize}px -apple-system, BlinkMacSystemFont, 'SF Pro', 'Segoe UI', 'Inter', 'Roboto', system-ui, sans-serif`;
                 ctx.textAlign = "left";
                 ctx.textBaseline = "top";
                 
-                const timeText = formatTime(time);
+                const timeText = formatTime(time, showFrames, fps);
                 
                 // Calculate text position more precisely
-                const textY = 2; // Start from top of ruler
+                const textY = 4; // Slightly more padding from top
                 
-                // Enhanced text shadow for better readability and depth
-                ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+                // Enhanced shadow system for maximum readability and depth
+                // Create a strong, crisp shadow for text that pops
+                
+                // Outer glow/shadow (darkest, widest)
+                ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
+                ctx.shadowBlur = 4;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+                ctx.fillStyle = "rgba(0, 0, 0, 0.9)";
                 ctx.fillText(timeText, textX + 1, textY + 1);
                 
-                // Secondary shadow for more depth
-                ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+                // Reset shadow for main text
+                ctx.shadowColor = "transparent";
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+                
+                // Secondary shadow for depth
+                ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
                 ctx.fillText(timeText, textX + 0.5, textY + 0.5);
                 
-                // Draw the actual text with enhanced contrast and subtle glow
-                ctx.fillStyle = "rgba(255, 255, 255, 0.95)"; // Enhanced text visibility
+                // Draw the actual text with crisp white color
+                // Use gradient fill for subtle sophistication
+                const textGradient = ctx.createLinearGradient(textX, textY, textX, textY + fontSize);
+                textGradient.addColorStop(0, "rgba(255, 255, 255, 1.0)"); // Pure white at top
+                textGradient.addColorStop(0.5, "rgba(245, 245, 250, 1.0)"); // Slight tint
+                textGradient.addColorStop(1, "rgba(235, 240, 245, 0.98)"); // Subtle gradient
+                ctx.fillStyle = textGradient;
                 ctx.fillText(timeText, textX, textY);
                 
-                // Update last text position
-                lastTextX = textX;
+                // Add subtle inner highlight for crispness
+                ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+                ctx.fillText(timeText, textX - 0.3, textY - 0.3);
+                
+                // Update last text position - measure actual text width for better spacing
+                const textWidth = ctx.measureText(timeText).width;
+                lastTextX = textX + textWidth;
               }
             }
           }
-        } else {
-          // Minor markers - enhanced with subtle styling
-          ctx.strokeStyle = "rgba(255, 255, 255, 0.4)"; // Enhanced visibility for minor markers
-          ctx.lineWidth = 0.9;
+        } else if (isSubMajorMarker) {
+          // Sub-major markers - shorter, lighter (35% ruler height)
+          const markerHeight = timeRulerHeight * 0.35;
+          const markerStartY = timeRulerHeight - markerHeight;
+          
+          // Lighter sub-major with minimal shadow
+          ctx.shadowColor = "rgba(0, 0, 0, 0.2)";
+          ctx.shadowBlur = 1;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.30)"; // Much lighter
+          ctx.lineWidth = 1;
+          ctx.lineCap = "round";
           ctx.beginPath();
-          ctx.moveTo(x, 0); // Start from top of ruler
+          ctx.moveTo(x, markerStartY);
           ctx.lineTo(x, timeRulerHeight);
           ctx.stroke();
           
-          // Add subtle shadow for depth
-          ctx.strokeStyle = "rgba(0, 0, 0, 0.2)";
-          ctx.lineWidth = 0.9;
+          // Reset shadow
+          ctx.shadowColor = "transparent";
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+        } else {
+          // Minor markers - very short, very light (20% ruler height)
+          const markerHeight = timeRulerHeight * 0.20;
+          const markerStartY = timeRulerHeight - markerHeight;
+          
+          // Very subtle minor markers
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.20)"; // Very light
+          ctx.lineWidth = 0.75;
+          ctx.lineCap = "butt"; // Sharp ends for minor markers
           ctx.beginPath();
-          ctx.moveTo(x + 0.3, 0.3);
-          ctx.lineTo(x + 0.3, timeRulerHeight + 0.3);
+          ctx.moveTo(x, markerStartY);
+          ctx.lineTo(x, timeRulerHeight);
           ctx.stroke();
         }
       }
