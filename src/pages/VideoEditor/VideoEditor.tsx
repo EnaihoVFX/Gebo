@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { exportCutlist } from "../../lib/ffmpeg";
 import type { Range, PlayerHandle, Track, Clip } from "../../types";
 import { useProject } from "../../hooks/useProject";
 import { Player } from "./components/Player";
+import { StreamingVideoPlayer, type ExtendedStreamingPlayerHandle } from "../../components/StreamingVideoPlayer";
+import { useStreamingPreview as useStreamingPreviewHook } from "./hooks/useStreamingPreview";
 import { AdvancedTimeline, type AdvancedTimelineHandle } from "./components/AdvancedTimeline";
 import { VideoTimeline } from "./components/VideoTimeline";
 import { CommandDialog } from "./components/CommandDialog";
@@ -14,7 +16,9 @@ import Footer from "./components/Footer";
 import { useFileHandling } from "./hooks/useFileHandling";
 import { useWaveformLogic } from "./hooks/useWaveformLogic";
 import { useCommandLogic } from "./hooks/useCommandLogic";
+import { useTimelinePreview } from "./hooks/useTimelinePreview";
 import { MediaGrid } from "./components/MediaGrid";
+import { diagnosePreviewSystem } from "../../lib/diagnostics";
 import { SongLibrary } from "./components/SongLibrary";
 import { 
   Home, 
@@ -123,6 +127,17 @@ export default function VideoEditor() {
   // Zoom level tracking
   const [zoomLevel, setZoomLevel] = useState(1);
   
+  // Track current playback time to determine if we should show video or black screen
+  const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
+  
+  // Calculate actual content duration from clips (for export)
+  const actualContentDuration = useMemo(() => {
+    if (clips.length === 0) return 0;
+    return Math.max(...clips.map(clip => 
+      clip.offset + (clip.endTime - clip.startTime)
+    ));
+  }, [clips]);
+  
   // Mobile debug panel
   const [showMobileDebug, setShowMobileDebug] = useState(false);
   
@@ -138,7 +153,11 @@ export default function VideoEditor() {
 
   // Players control
   const editedRef = useRef<PlayerHandle>(null);
+  const streamingPlayerRef = useRef<ExtendedStreamingPlayerHandle>(null);
   const advancedTimelineRef = useRef<AdvancedTimelineHandle>(null);
+  
+  // Streaming mode toggle (default to cached mode as it's more reliable)
+  const [useStreamingMode, setUseStreamingMode] = useState(false);
 
   // Custom hooks
   const {
@@ -172,6 +191,56 @@ export default function VideoEditor() {
     openCommand,
     executeCommand,
   } = useCommandLogic(probe, log);
+
+  // Auto-cleanup ghost clips (clips whose media files or tracks no longer exist)
+  useEffect(() => {
+    const ghostClips = clips.filter(clip => {
+      const hasMediaFile = mediaFiles.some(mf => mf.id === clip.mediaFileId);
+      const hasTrack = tracks.some(t => t.id === clip.trackId);
+      return !hasMediaFile || !hasTrack;
+    });
+    
+    if (ghostClips.length > 0) {
+      console.log(`🧹 Auto-cleaning ${ghostClips.length} ghost clips:`, ghostClips.map(c => ({ id: c.id, name: c.name })));
+      ghostClips.forEach(clip => {
+        const missingWhat = !mediaFiles.some(mf => mf.id === clip.mediaFileId) ? 'media file' : 'track';
+        console.log(`Removing ghost clip: ${clip.name} (missing ${missingWhat})`);
+        removeClip(clip.id);
+      });
+    }
+  }, [clips, mediaFiles, tracks, removeClip]);
+
+  // Timeline preview generation
+  const {
+    previewUrl: timelinePreviewUrl,
+    isGenerating: isGeneratingPreview,
+    error: previewError,
+    progress: previewProgress,
+    regeneratePreview,
+  } = useTimelinePreview({
+    clips,
+    mediaFiles,
+    playerWidth: 1280,
+    playerHeight: 720,
+    debounceMs: 500, // Reduced from 1500ms to 500ms for faster response
+    enabled: clips.length > 0,
+  });
+
+  // Streaming preview system (Phase 4)
+  const streamingPreview = useStreamingPreviewHook({
+    clips,
+    mediaFiles,
+    playerRef: streamingPlayerRef,
+    enabled: useStreamingMode && clips.length > 0,
+  });
+
+  // Run diagnostics if preview fails
+  useEffect(() => {
+    if (previewError) {
+      console.error('Preview generation failed:', previewError);
+      diagnosePreviewSystem();
+    }
+  }, [previewError]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -463,7 +532,10 @@ export default function VideoEditor() {
     if (editedRef.current?.isPlaying()) pauseVideo();
     else playVideo();
   };
-  const seekVideo = (t: number) => { editedRef.current?.seek(t); };
+  const seekVideo = (t: number) => { 
+    editedRef.current?.seek(t); 
+    setCurrentPlaybackTime(t);
+  };
 
   // Frame-by-frame navigation
   const frameStep = (direction: 'forward' | 'backward') => {
@@ -601,13 +673,101 @@ export default function VideoEditor() {
     return () => clearInterval(interval);
   }, []);
 
+  // Sync playback time with timeline (for playhead movement)
+  // Keeps playhead moving even past clips (infinite canvas feeling)
+  const lastUpdateTimeRef = useRef(Date.now());
+  const virtualPlaybackRef = useRef(false); // When video ends but we keep playing
+  const animationFrameRef = useRef<number | null>(null);
+  
+  useEffect(() => {
+    let isActive = true;
+    
+    const updatePlaybackTime = () => {
+      if (!isActive) return;
+      
+      const player = useStreamingMode ? streamingPlayerRef.current : editedRef.current;
+      const now = Date.now();
+      const deltaTime = (now - lastUpdateTimeRef.current) / 1000; // Convert to seconds
+      
+      if (player) {
+        const isPlaying = player.isPlaying();
+        
+        if (isPlaying || virtualPlaybackRef.current) {
+          let time = player.currentTime();
+          
+          // If we're past the actual content duration, enter "virtual playback" mode
+          // This keeps the playhead moving in the empty/black area
+          if (time >= actualContentDuration && isPlaying) {
+            virtualPlaybackRef.current = true;
+            time = currentPlaybackTime + deltaTime;
+          } else if (!isPlaying && virtualPlaybackRef.current) {
+            // Stopped during virtual playback
+            virtualPlaybackRef.current = false;
+          } else {
+            // Normal playback
+            virtualPlaybackRef.current = false;
+          }
+          
+          // Only update if time changed significantly (avoid tiny updates)
+          if (Math.abs(time - currentPlaybackTime) > 0.01) {
+            setCurrentPlaybackTime(time);
+          }
+          lastUpdateTimeRef.current = now;
+          
+          // Update timeline playhead position
+          if (advancedTimelineRef.current) {
+            advancedTimelineRef.current.setCurrentTime(time);
+          }
+        } else {
+          lastUpdateTimeRef.current = now;
+        }
+      }
+      
+      // Use requestAnimationFrame for smoother updates when playing
+      if (player?.isPlaying() || virtualPlaybackRef.current) {
+        animationFrameRef.current = requestAnimationFrame(updatePlaybackTime);
+      } else {
+        // When paused, check less frequently
+        setTimeout(() => {
+          animationFrameRef.current = requestAnimationFrame(updatePlaybackTime);
+        }, 100);
+      }
+    };
+    
+    animationFrameRef.current = requestAnimationFrame(updatePlaybackTime);
+
+    return () => {
+      isActive = false;
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [useStreamingMode, currentPlaybackTime, actualContentDuration]);
+
+  // Check if current playback time has any clips (with rounding to reduce recalculations)
+  const hasClipAtCurrentTime = useMemo(() => {
+    if (clips.length === 0) return false;
+    
+    // Round to 0.1 second to reduce recalculations during playback
+    const roundedTime = Math.round(currentPlaybackTime * 10) / 10;
+    
+    return clips.some(clip => {
+      const clipStart = clip.offset;
+      const clipEnd = clip.offset + (clip.endTime - clip.startTime);
+      return roundedTime >= clipStart && roundedTime < clipEnd;
+    });
+  }, [clips, Math.round(currentPlaybackTime * 10)]);
+
   // Automatically delete empty tracks when clips change
   // Temporarily disabled: Automatically delete empty tracks when clips or tracks change
   // useEffect(() => {
   //   deleteEmptyTracks();
   // }, [deleteEmptyTracks]);
 
-  const duration = probe?.duration || 0;
+  // Use a fixed timeline duration (30 minutes) for "infinite canvas" feeling
+  // Exports will still use actual clip duration
+  const TIMELINE_DURATION = 30 * 60; // 30 minutes in seconds
+  const duration = TIMELINE_DURATION;
 
   const getFileName = (path: string) => {
     if (!path) return "No file loaded";
@@ -971,14 +1131,81 @@ export default function VideoEditor() {
               {/* Video Preview Area - Always Visible */}
               <div className="flex-1 flex flex-col overflow-hidden min-h-0 p-2 sm:p-3 lg:p-4">
                 <div className="flex-1 flex items-center justify-center w-full h-full">
-                  <Player
-                    ref={editedRef}
-                    src={clips.length > 0 ? mediaFiles.find(mf => mf.id === clips[0].mediaFileId)?.previewUrl || previewUrl || "" : previewUrl || ""}
-                    label="Preview"
-                    cuts={acceptedCuts}
-                    large
-                  />
+                  {useStreamingMode ? (
+                    <StreamingVideoPlayer
+                      ref={streamingPlayerRef}
+                      onReady={() => console.log('Streaming player ready')}
+                      onError={(error) => console.error('Streaming error:', error)}
+                      className="w-full h-full flex flex-col"
+                    />
+                  ) : (
+                    <div className="relative w-full h-full flex items-center justify-center">
+                      {/* Player - always rendered */}
+                      <Player
+                        ref={editedRef}
+                        src={
+                          // Priority: timeline preview > first clip preview > fallback
+                          timelinePreviewUrl || 
+                          (clips.length > 0 
+                            ? mediaFiles.find(mf => mf.id === clips[0].mediaFileId)?.previewUrl 
+                            : null) || 
+                          previewUrl || 
+                          ""
+                        }
+                        label="Preview"
+                        cuts={acceptedCuts}
+                        large
+                        isGeneratingPreview={isGeneratingPreview && !timelinePreviewUrl}
+                        previewProgress={previewProgress}
+                        previewError={previewError}
+                        onRegeneratePreview={regeneratePreview}
+                        onSeekToStart={() => seekVideo(0)}
+                        onSeekToEnd={() => seekVideo(actualContentDuration > 0 ? actualContentDuration : 0)}
+                      />
+                      {/* Black screen overlay when playhead is on empty timeline or no clips */}
+                      {(!hasClipAtCurrentTime || clips.length === 0) && (
+                        <div 
+                          className="absolute inset-0 bg-black pointer-events-none rounded flex items-center justify-center" 
+                          style={{ 
+                            aspectRatio: "16 / 9", 
+                            maxWidth: "100%", 
+                            maxHeight: "100%",
+                            willChange: "opacity"
+                          }} 
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
+                
+                {/* Streaming Status */}
+                {useStreamingMode && clips.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {streamingPreview.isStreaming && (
+                      <div className="px-2 py-1 bg-blue-500/20 border border-blue-500/30 rounded text-xs text-blue-300 flex items-center gap-2">
+                        <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                        <span>Streaming: {streamingPreview.chunksReceived} chunks ({streamingPreview.progress.toFixed(0)}%)</span>
+                      </div>
+                    )}
+                    {streamingPreview.isComplete && !streamingPreview.isStreaming && (
+                      <div className="px-2 py-1 bg-green-500/20 border border-green-500/30 rounded text-xs text-green-300 flex items-center gap-2">
+                        <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                        <span>✓ Ready to play ({streamingPreview.chunksReceived} chunks loaded)</span>
+                      </div>
+                    )}
+                    {streamingPreview.error && (
+                      <div className="px-2 py-1 bg-red-500/20 border border-red-500/30 rounded text-xs text-red-300 flex items-center gap-2">
+                        <span>⚠️ Error: {streamingPreview.error}</span>
+                        <button
+                          onClick={() => streamingPreview.restart()}
+                          className="ml-auto px-2 py-0.5 bg-red-500/30 hover:bg-red-500/50 rounded transition-colors"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1052,7 +1279,7 @@ export default function VideoEditor() {
         projectName={filePath ? getFileName(filePath) : "No Project"}
         resolution={probe?.width && probe?.height ? `${probe.width}x${probe.height}` : "No video loaded"}
         frameRate={probe?.fps ? Math.round(probe.fps) : 0}
-        duration={duration}
+        duration={actualContentDuration > 0 ? actualContentDuration : duration}
         filePath={filePath || ""}
         audioChannels={probe?.audio_channels || 0}
         audioRate={probe?.audio_rate || 0}

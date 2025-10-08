@@ -41,6 +41,7 @@ export interface AdvancedTimelineHandle {
   zoomIn: () => void;
   zoomOut: () => void;
   resetZoom: () => void;
+  setCurrentTime: (time: number) => void;
   isZooming: boolean;
   zoomLevel: number;
 }
@@ -672,9 +673,13 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     zoomIn: handleZoomIn,
     zoomOut: handleZoomOut,
     resetZoom: handleResetZoom,
+    setCurrentTime: (time: number) => {
+      setCurrentTime(time);
+      ensurePinMarkerVisible(time);
+    },
     isZooming: isZooming,
     zoomLevel: zoom
-  }), [handleZoomIn, handleZoomOut, handleResetZoom, isZooming, zoom]);
+  }), [handleZoomIn, handleZoomOut, handleResetZoom, isZooming, zoom, ensurePinMarkerVisible]);
 
   // Helper function to draw rounded rectangles
   const drawRoundedRect = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) => {
@@ -742,20 +747,20 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
     
     
      // Draw modern, refined time ruler with sophisticated design
-     // Create premium glassmorphic background with rich depth
+     // Create premium glassmorphic background with rich depth (flipped gradient - darker)
      const gradient = ctx.createLinearGradient(0, 0, 0, timeRulerHeight);
-     gradient.addColorStop(0, "rgba(75, 75, 85, 0.65)"); // Richer top for better contrast
-     gradient.addColorStop(0.4, "rgba(65, 65, 75, 0.55)"); // Smooth transition
-     gradient.addColorStop(1, "rgba(50, 50, 60, 0.50)"); // Deeper bottom
+     gradient.addColorStop(0, "rgba(30, 30, 35, 0.70)"); // Darker top
+     gradient.addColorStop(0.6, "rgba(40, 40, 45, 0.75)"); // Smooth transition
+     gradient.addColorStop(1, "rgba(50, 50, 55, 0.80)"); // Darker bottom
      ctx.fillStyle = gradient;
      ctx.fillRect(0, 0, timelineWidth, timeRulerHeight);
      
-     // Add refined highlight overlay for premium glass effect
+     // Add refined highlight overlay for premium glass effect (flipped gradient - more subtle)
      const highlightGradient = ctx.createLinearGradient(0, 0, 0, timeRulerHeight);
-     highlightGradient.addColorStop(0, "rgba(255, 255, 255, 0.12)"); // Brighter top shine
-     highlightGradient.addColorStop(0.3, "rgba(255, 255, 255, 0.06)");
+     highlightGradient.addColorStop(0, "rgba(255, 255, 255, 0.04)"); // Very subtle top reflection
+     highlightGradient.addColorStop(0.3, "rgba(255, 255, 255, 0.02)");
      highlightGradient.addColorStop(0.7, "rgba(255, 255, 255, 0.03)");
-     highlightGradient.addColorStop(1, "rgba(255, 255, 255, 0.08)"); // Subtle bottom reflection
+     highlightGradient.addColorStop(1, "rgba(255, 255, 255, 0.06)"); // Subtle bottom shine
      ctx.fillStyle = highlightGradient;
      ctx.fillRect(0, 0, timelineWidth, timeRulerHeight);
      
@@ -976,18 +981,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
           const markerHeight = timeRulerHeight * 0.5;
           const markerStartY = timeRulerHeight - markerHeight;
           
-          // Draw refined grid line extending into tracks area
-          const drawGridLines = pixelsPerSecond > 20; // Only show grid lines when reasonably zoomed in
-          if (drawGridLines) {
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.03)"; // Much lighter
-            ctx.lineWidth = 1;
-            ctx.setLineDash([3, 6]); // More refined dash pattern
-            ctx.beginPath();
-            ctx.moveTo(x, timeRulerHeight);
-            ctx.lineTo(x, Math.min(timelineHeight, timeRulerHeight + 300)); // Extend 300px into tracks
-            ctx.stroke();
-            ctx.setLineDash([]); // Reset dash
-          }
+          // Grid lines removed for cleaner look
           
           // Lighter, more subtle marker line
           // Shadow/glow layer first (for depth)
@@ -1394,20 +1388,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       nextAvailableOffset = latestEndTime;
     }
     
-    // Draw a subtle line showing where the next clip will be placed
-    if (nextAvailableOffset > 0) {
-      const nextPosX = (nextAvailableOffset / effectiveDuration) * (timelineWidth * zoom) - pan;
-      if (nextPosX > 0 && nextPosX < timelineWidth) {
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.moveTo(nextPosX, timeRulerHeight);
-        ctx.lineTo(nextPosX, timeRulerHeight + trackHeight);
-        ctx.stroke();
-        ctx.setLineDash([]); // Reset dash pattern
-      }
-    }
+    // Next position indicator removed for cleaner look
 
     // Draw track backgrounds with alternating colors for visual differentiation
     sortedTracks.forEach((track) => {
@@ -2563,8 +2544,9 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       <div className="absolute inset-0 bg-gradient-to-br from-white/3 to-transparent opacity-100 pointer-events-none rounded-2xl"></div>
       
       {/* Header with Timeline Controls */}
-      <div className="px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between relative z-10 bg-gradient-to-br from-editor-bg-glass-primary via-editor-bg-glass-primary to-editor-bg-glass-primary backdrop-blur-2xl">
-        <div className="flex items-center gap-1">
+      <div className="border-b border-editor-border-tertiary bg-editor-bg-glass-secondary backdrop-blur-xl px-3 sm:px-4 py-2 flex items-center justify-between relative z-10">
+        <div className="absolute inset-0 bg-gradient-to-br from-white/3 to-transparent opacity-100 pointer-events-none"></div>
+        <div className="flex items-center gap-1 relative z-10">
           {/* Timeline Tools */}
           <div className="flex items-center gap-1 mr-4 pr-4">
             <button
@@ -2637,7 +2619,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         </div>
         
         {/* Timeline Controls */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 relative z-10">
           
           {/* Zoom Controls */}
           <button
@@ -2696,12 +2678,12 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
       {/* Timeline Content with Track Controls */}
       <div className="flex relative z-10 bg-transparent">
         {/* Track Controls Sidebar */}
-        <div className="w-12 flex-shrink-0 flex flex-col bg-gradient-to-br from-editor-bg-glass-primary via-editor-bg-glass-primary to-editor-bg-glass-primary backdrop-blur-2xl">
-          <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-100 pointer-events-none rounded-bl-2xl"></div>
+        <div className="w-12 flex-shrink-0 flex flex-col bg-editor-bg-glass-secondary backdrop-blur-xl relative pb-3">
+          <div className="absolute inset-0 bg-gradient-to-br from-white/3 to-transparent opacity-100 pointer-events-none rounded-bl-2xl"></div>
           {/* Ruler spacer to align with timeline ruler */}
           <div 
             style={{ height: `${timeRulerHeight}px` }} 
-            className="flex-shrink-0 bg-gradient-to-br from-editor-bg-glass-primary via-editor-bg-glass-primary to-editor-bg-glass-primary backdrop-blur-2xl relative z-10">
+            className="flex-shrink-0 bg-editor-bg-glass-secondary backdrop-blur-xl relative z-10">
             <div className="absolute inset-0 bg-gradient-to-br from-white/3 to-transparent opacity-100 pointer-events-none"></div>
           </div>
           
@@ -2740,7 +2722,7 @@ export const AdvancedTimeline = forwardRef<AdvancedTimelineHandle, AdvancedTimel
         </div>
         
         {/* Timeline Canvas with Scrollbar */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col pb-3 pr-3">
           <div 
             data-timeline="true"
             className="flex-1 relative"

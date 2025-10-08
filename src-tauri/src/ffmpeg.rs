@@ -419,3 +419,283 @@ pub fn generate_thumbnails(input: &str, count: usize, width: u32) -> Result<Vec<
 
   Ok(thumbnails)
 }
+
+/// --- Album Art Extraction -------------------------------------------------------------
+
+/// Extract album art from audio file and return as base64-encoded PNG.
+/// Returns None if no album art is found.
+pub fn extract_album_art(input: &str) -> Result<Option<String>> {
+  if !ffmpeg_exists() {
+    return Err(anyhow!("ffmpeg/ffprobe not found on PATH"));
+  }
+
+  // Try to extract album art using ffmpeg
+  let output = Command::new("ffmpeg")
+    .args([
+      "-v", "error",
+      "-i", input,
+      "-an",  // Disable audio
+      "-c:v", "png",  // Convert to PNG
+      "-f", "image2pipe",
+      "-vframes", "1",
+      "-"
+    ])
+    .output()
+    .with_context(|| "failed to spawn ffmpeg for album art extraction")?;
+
+  // If ffmpeg failed or returned no data, there's no album art
+  if !output.status.success() || output.stdout.is_empty() {
+    return Ok(None);
+  }
+
+  // Convert to base64
+  let base64 = base64::engine::general_purpose::STANDARD.encode(&output.stdout);
+  Ok(Some(base64))
+}
+
+/// --- Timeline Preview Generation -------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TimelineClip {
+  pub media_path: String,
+  pub start_time: f64,  // Start time within the source media
+  pub end_time: f64,    // End time within the source media
+  pub offset: f64,      // Position on the timeline
+}
+
+/// Generate a preview video from a timeline composition
+/// This creates a fast, lower quality preview optimized for the player dimensions
+pub fn generate_timeline_preview(
+  clips: &[TimelineClip],
+  output_width: u32,
+  _total_duration: f64,
+) -> Result<String> {
+  if !ffmpeg_exists() {
+    return Err(anyhow!("ffmpeg/ffprobe not found on PATH"));
+  }
+
+  if clips.is_empty() {
+    return Err(anyhow!("No clips provided for timeline preview"));
+  }
+
+  // Use Downloads directory for preview storage
+  let downloads_dir = dirs::download_dir().unwrap_or_else(|| std::env::temp_dir());
+  let timestamp = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_secs();
+  let out_path = downloads_dir.join(format!("timeline_preview_{}.mp4", timestamp));
+  let out_str = out_path.to_string_lossy().to_string();
+
+  // Sort clips by offset
+  let mut sorted_clips = clips.to_vec();
+  sorted_clips.sort_by(|a, b| a.offset.partial_cmp(&b.offset).unwrap());
+
+  // Build filter_complex for concatenating clips
+  let mut filter = String::new();
+  let mut stream_labels = Vec::new();
+
+  for (i, clip) in sorted_clips.iter().enumerate() {
+    let _clip_duration = clip.end_time - clip.start_time;
+    
+    // Trim and scale each clip
+    filter.push_str(&format!(
+      "[{}:v]trim=start={}:end={},setpts=PTS-STARTPTS,scale='min({},iw)':-2[v{}]; \
+       [{}:a]atrim=start={}:end={},asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0[a{}]; ",
+      i, clip.start_time, clip.end_time, output_width, i,
+      i, clip.start_time, clip.end_time, i
+    ));
+    
+    // Concat expects streams in pairs: [v0][a0][v1][a1]...
+    stream_labels.push(format!("[v{}][a{}]", i, i));
+  }
+
+  // Concatenate all clips - join the paired labels
+  filter.push_str(&format!(
+    "{}concat=n={}:v=1:a=1[outv][outa]",
+    stream_labels.join(""),
+    sorted_clips.len()
+  ));
+
+  // Build ffmpeg command with multiple inputs
+  let mut cmd = Command::new("ffmpeg");
+  cmd.args(["-v", "error"]);
+  
+  // Add all input files
+  for clip in &sorted_clips {
+    cmd.args(["-i", &clip.media_path]);
+  }
+
+  // Add filter and output settings
+  cmd.args([
+    "-filter_complex",
+    &filter,
+    "-map",
+    "[outv]",
+    "-map",
+    "[outa]",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "ultrafast",  // Fast encoding for preview
+    "-crf",
+    "28",  // Lower quality for faster preview
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "96k",
+    "-movflags",
+    "+faststart",
+    "-y",
+    &out_str,
+  ]);
+
+  let status = cmd
+    .status()
+    .with_context(|| "failed to spawn ffmpeg for timeline preview")?;
+
+  if !status.success() {
+    return Err(anyhow!(
+      "ffmpeg timeline preview creation failed (status {:?})",
+      status.code()
+    ));
+  }
+
+  Ok(out_str)
+}
+
+/// Generate a fast preview with dynamic resolution based on player dimensions
+pub fn generate_adaptive_timeline_preview(
+  clips: &[TimelineClip],
+  player_width: u32,
+  _player_height: u32,
+  _total_duration: f64,
+) -> Result<String> {
+  if !ffmpeg_exists() {
+    return Err(anyhow!("ffmpeg/ffprobe not found on PATH"));
+  }
+
+  if clips.is_empty() {
+    return Err(anyhow!("No clips provided for timeline preview"));
+  }
+
+  // Calculate optimal preview resolution
+  // Aim for slightly higher than player size to avoid pixelation
+  let target_width = (player_width as f32 * 1.2).min(1280.0) as u32;
+
+  // Use Downloads directory for preview storage
+  let downloads_dir = dirs::download_dir().unwrap_or_else(|| std::env::temp_dir());
+  let timestamp = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_secs();
+  let out_path = downloads_dir.join(format!("timeline_preview_{}.mp4", timestamp));
+  let out_str = out_path.to_string_lossy().to_string();
+
+  // Sort clips by offset
+  let mut sorted_clips = clips.to_vec();
+  sorted_clips.sort_by(|a, b| a.offset.partial_cmp(&b.offset).unwrap());
+
+  // For single clip, use simpler approach
+  if sorted_clips.len() == 1 {
+    let clip = &sorted_clips[0];
+    let clip_duration = clip.end_time - clip.start_time;
+    
+    let output = Command::new("ffmpeg")
+      .args([
+        "-v", "error",
+        "-ss", &clip.start_time.to_string(),
+        "-t", &clip_duration.to_string(),
+        "-i", &clip.media_path,
+        "-vf", &format!("scale='min({},iw)':-2", target_width),
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "26",  // Slightly better quality for single clip
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-movflags", "+faststart",
+        "-y",
+        &out_str,
+      ])
+      .output()
+      .with_context(|| "failed to spawn ffmpeg for single clip preview")?;
+
+    if !output.status.success() {
+      let stderr = String::from_utf8_lossy(&output.stderr);
+      eprintln!("FFmpeg error output: {}", stderr);
+      return Err(anyhow!("ffmpeg preview creation failed: {}", stderr));
+    }
+
+    return Ok(out_str);
+  }
+
+  // Build filter_complex for multiple clips
+  let mut filter = String::new();
+  let mut stream_labels = Vec::new();
+
+  for (i, clip) in sorted_clips.iter().enumerate() {
+    let _clip_duration = clip.end_time - clip.start_time;
+    
+    // Trim, scale, and prepare each clip
+    filter.push_str(&format!(
+      "[{}:v]trim=start={}:end={},setpts=PTS-STARTPTS,scale='min({},iw)':-2,fps=30[v{}]; \
+       [{}:a]atrim=start={}:end={},asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0[a{}]; ",
+      i, clip.start_time, clip.end_time, target_width, i,
+      i, clip.start_time, clip.end_time, i
+    ));
+    
+    // Concat expects streams in pairs: [v0][a0][v1][a1]...
+    stream_labels.push(format!("[v{}][a{}]", i, i));
+  }
+
+  // Concatenate all clips - join the paired labels
+  filter.push_str(&format!(
+    "{}concat=n={}:v=1:a=1[outv][outa]",
+    stream_labels.join(""),
+    sorted_clips.len()
+  ));
+
+  // Build ffmpeg command with multiple inputs
+  let mut cmd = Command::new("ffmpeg");
+  cmd.args(["-v", "error"]);
+  
+  // Add all input files
+  for clip in &sorted_clips {
+    cmd.args(["-i", &clip.media_path]);
+  }
+
+  // Add filter and output settings
+  cmd.args([
+    "-filter_complex",
+    &filter,
+    "-map", "[outv]",
+    "-map", "[outa]",
+    "-c:v", "libx264",
+    "-preset", "ultrafast",
+    "-crf", "26",
+    "-pix_fmt", "yuv420p",
+    "-c:a", "aac",
+    "-b:a", "128k",
+    "-movflags", "+faststart",
+    "-y",
+    &out_str,
+  ]);
+
+  let output = cmd
+    .output()
+    .with_context(|| "failed to spawn ffmpeg for timeline preview")?;
+
+  if !output.status.success() {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    eprintln!("FFmpeg error output: {}", stderr);
+    return Err(anyhow!(
+      "ffmpeg timeline preview creation failed: {}",
+      stderr
+    ));
+  }
+
+  Ok(out_str)
+}

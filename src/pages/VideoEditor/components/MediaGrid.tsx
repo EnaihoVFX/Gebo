@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect } from "react";
-import { Plus, Video, Music, X, Mic, MicOff, Loader, CheckCircle, XCircle, Eye, EyeOff } from "lucide-react";
+import { Plus, Video, X, Mic, MicOff, Loader, CheckCircle, XCircle, Eye, EyeOff } from "lucide-react";
 import type { MediaFile } from "../../../types";
 
 interface MediaGridProps {
@@ -179,7 +179,7 @@ export function MediaGrid({ mediaFiles, onAddMedia, onRemoveMedia, onDragStart }
                   handleMouseDown(mediaFile, e);
                 }}
                 style={{
-                  aspectRatio: '16/9'
+                  aspectRatio: mediaFile.type === 'audio' ? '1/1' : '16/9'
                 }}
               >
                 {/* Thumbnail */}
@@ -196,7 +196,14 @@ export function MediaGrid({ mediaFiles, onAddMedia, onRemoveMedia, onDragStart }
                       {mediaFile.type === 'video' ? (
                         <Video className="w-8 h-8 text-slate-500" />
                       ) : (
-                        <Music className="w-8 h-8 text-slate-500" />
+                        <svg 
+                          className="w-12 h-12 text-slate-400" 
+                          viewBox="0 0 24 24" 
+                          fill="currentColor"
+                          xmlns="http://www.w3.org/2000/svg"
+                        >
+                          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                        </svg>
                       )}
                     </div>
                   )}

@@ -8,6 +8,7 @@ mod ai_agent;
 mod gemini_client;
 mod transcription;
 mod video_analysis;
+mod streaming_encoder;
 
 use crate::transcription::transcribe_media_file;
 use crate::video_analysis::analyze_video_file;
@@ -128,6 +129,31 @@ fn get_file_size(path: String) -> Result<u64, String> {
 #[tauri::command]
 fn generate_thumbnails(path: String, count: usize, width: u32) -> Result<Vec<String>, String> {
   ffmpeg::generate_thumbnails(&path, count, width).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn extract_album_art(path: String) -> Result<Option<String>, String> {
+  ffmpeg::extract_album_art(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn generate_timeline_preview(
+  clips: Vec<ffmpeg::TimelineClip>,
+  output_width: u32,
+  total_duration: f64,
+) -> Result<String, String> {
+  ffmpeg::generate_timeline_preview(&clips, output_width, total_duration).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn generate_adaptive_timeline_preview(
+  clips: Vec<ffmpeg::TimelineClip>,
+  player_width: u32,
+  player_height: u32,
+  total_duration: f64,
+) -> Result<String, String> {
+  ffmpeg::generate_adaptive_timeline_preview(&clips, player_width, player_height, total_duration)
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -262,6 +288,44 @@ async fn reset_ai_agent() -> Result<(), String> {
   ai_agent::reset_processing_lock().await
 }
 
+// Streaming preview commands
+use tauri::Emitter;
+
+#[tauri::command]
+async fn start_streaming_preview(
+  app: tauri::AppHandle,
+  clips: Vec<streaming_encoder::StreamingSegment>,
+  width: u32,
+) -> Result<(), String> {
+  std::thread::spawn(move || {
+    match streaming_encoder::generate_streaming_preview(clips, width) {
+      Ok((rx, handle)) => {
+        // Stream chunks to frontend
+        while let Ok(chunk) = rx.recv() {
+          if let Err(e) = app.emit("preview-chunk", chunk) {
+            eprintln!("Failed to emit chunk: {}", e);
+            break;
+          }
+        }
+        
+        // Wait for encoding to complete
+        if let Err(e) = handle.join().unwrap() {
+          eprintln!("Streaming encoding error: {}", e);
+          let _ = app.emit("preview-error", format!("{}", e));
+        } else {
+          let _ = app.emit("preview-complete", ());
+        }
+      }
+      Err(e) => {
+        eprintln!("Failed to start streaming: {}", e);
+        let _ = app.emit("preview-error", format!("{}", e));
+      }
+    }
+  });
+  
+  Ok(())
+}
+
 fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
@@ -277,6 +341,9 @@ fn main() {
       read_file_chunk,
       get_file_size,
       generate_thumbnails,
+      extract_album_art,
+      generate_timeline_preview,
+      generate_adaptive_timeline_preview,
       resize_window,
       center_window,
       set_fullscreen,
@@ -303,7 +370,9 @@ fn main() {
       // Transcription commands
       transcribe_media_file,
       // Video analysis commands
-      analyze_video_file
+      analyze_video_file,
+      // Streaming preview commands
+      start_streaming_preview
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

@@ -106,20 +106,20 @@ export function VideoTimeline({
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Clear canvas with enhanced glassmorphic background matching sidebar style
+    // Clear canvas with glassmorphic background matching other panels
     const backgroundGradient = ctx.createLinearGradient(0, 0, 0, timelineHeight);
-    backgroundGradient.addColorStop(0, "rgba(63, 63, 70, 0.35)"); // Enhanced top opacity
-    backgroundGradient.addColorStop(0.5, "rgba(55, 55, 60, 0.30)"); // Mid-tone
-    backgroundGradient.addColorStop(1, "rgba(39, 39, 42, 0.25)"); // Enhanced bottom opacity
+    backgroundGradient.addColorStop(0, "rgba(39, 39, 42, 0.25)"); // editor-bg-glass-secondary
+    backgroundGradient.addColorStop(0.5, "rgba(39, 39, 42, 0.22)");
+    backgroundGradient.addColorStop(1, "rgba(39, 39, 42, 0.20)");
     ctx.fillStyle = backgroundGradient;
     ctx.fillRect(0, 0, timelineWidth, timelineHeight);
     
-    // Add subtle backdrop blur effect simulation
-    const blurGradient = ctx.createLinearGradient(0, 0, 0, timelineHeight);
-    blurGradient.addColorStop(0, "rgba(255, 255, 255, 0.08)");
-    blurGradient.addColorStop(0.5, "rgba(255, 255, 255, 0.03)");
-    blurGradient.addColorStop(1, "rgba(255, 255, 255, 0.05)");
-    ctx.fillStyle = blurGradient;
+    // Add subtle overlay gradient for depth
+    const overlayGradient = ctx.createLinearGradient(0, 0, 0, timelineHeight);
+    overlayGradient.addColorStop(0, "rgba(255, 255, 255, 0.03)");
+    overlayGradient.addColorStop(0.5, "rgba(255, 255, 255, 0.015)");
+    overlayGradient.addColorStop(1, "rgba(255, 255, 255, 0.02)");
+    ctx.fillStyle = overlayGradient;
     ctx.fillRect(0, 0, timelineWidth, timelineHeight);
 
     // Draw thumbnails
@@ -360,21 +360,16 @@ export function VideoTimeline({
     ctx.fillStyle = rulerShadowGradient;
     ctx.fillRect(0, rulerStartY, timelineWidth, 4);
 
-    // Enhanced border system with multiple layers
-    // Outer border with enhanced visibility
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.20)"; // Enhanced border visibility
+    // Border system matching other panels
+    // Outer border
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.10)"; // editor-border-tertiary
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, timelineWidth, timelineHeight);
     
-    // Inner highlight for glassmorphic depth
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+    // Inner highlight for subtle depth
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
     ctx.lineWidth = 0.5;
     ctx.strokeRect(0.5, 0.5, timelineWidth - 1, timelineHeight - 1);
-    
-    // Subtle inner shadow for depth
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.15)";
-    ctx.lineWidth = 0.5;
-    ctx.strokeRect(1, 1, timelineWidth - 2, timelineHeight - 2);
   }, [samples, accepted, preview, duration, timelineWidth, timelineHeight, thumbnails, currentTime, isHovering]);
 
   const formatTime = (seconds: number, showMilliseconds: boolean = false): string => {
@@ -452,7 +447,7 @@ export function VideoTimeline({
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
           onWheel={handleWheel}
-          className="cursor-pointer hover:opacity-90 transition-opacity block w-full rounded border border-editor-border-tertiary bg-editor-bg-glass-primary backdrop-blur-xl"
+          className="cursor-pointer hover:opacity-90 transition-opacity block w-full rounded-xl border border-editor-border-tertiary bg-editor-bg-glass-secondary backdrop-blur-xl"
           style={{ height: `${timelineHeight}px`, maxHeight: `${timelineHeight}px` }}
         />
       </div>

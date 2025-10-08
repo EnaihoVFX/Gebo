@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { audioPeaks, makePreviewProxy, probeVideo, readFileAsBase64, copyToAppData, readFileChunk, getFileSize, generateThumbnails, type Probe } from "../../../lib/ffmpeg";
+import { audioPeaks, makePreviewProxy, probeVideo, readFileChunk, getFileSize, generateThumbnails, extractAlbumArt, type Probe } from "../../../lib/ffmpeg";
 import { transcriptionService } from "../../../lib/transcription";
 import { videoAnalysisService } from "../../../lib/videoAnalysis";
 import type { MediaFile } from "../../../types";
@@ -308,7 +308,7 @@ export function useFileHandling() {
       let thumbnails: string[] = [];
       try {
         if (probe.width > 0 && probe.height > 0) {
-          // Generate single thumbnail for preview
+          // Video file - generate thumbnail from video
           const singleThumbnails = await generateThumbnails(filePath, 1, 160);
           if (singleThumbnails.length > 0) {
             // Convert base64 to blob URL for preview
@@ -322,8 +322,32 @@ export function useFileHandling() {
             const blob = new Blob([byteArray], { type: 'image/png' });
             thumbnailUrl = URL.createObjectURL(blob);
           }
+        } else {
+          // Audio file - try to extract album art
+          log(`Attempting to extract album art for ${filePath}...`);
+          try {
+            const albumArtBase64 = await extractAlbumArt(filePath);
+            if (albumArtBase64) {
+              // Convert base64 to blob URL for preview
+              const byteCharacters = atob(albumArtBase64);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              const blob = new Blob([byteArray], { type: 'image/png' });
+              thumbnailUrl = URL.createObjectURL(blob);
+              log(`✅ Album art extracted for ${filePath}`);
+            } else {
+              log(`No album art found for ${filePath}`);
+            }
+          } catch (albumArtError: any) {
+            log(`Album art extraction failed for ${filePath}: ${albumArtError?.toString?.() || albumArtError}`);
+          }
+        }
 
-          // Generate multiple thumbnails for filmstrip based on duration
+        // Generate multiple thumbnails for filmstrip based on duration (only for video files)
+        if (probe.width > 0 && probe.height > 0) {
           log(`Generating filmstrip thumbnails for ${filePath}...`);
           log(`File path: ${filePath}, Duration: ${probe.duration}s, Width: ${probe.width}, Height: ${probe.height}`);
           

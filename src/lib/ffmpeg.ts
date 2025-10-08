@@ -41,3 +41,40 @@ export async function getFileSize(path: string): Promise<number> {
 export async function generateThumbnails(path: string, count: number, width: number): Promise<string[]> {
   return await invoke("generate_thumbnails", { path, count, width }) as string[];
 }
+
+export async function extractAlbumArt(path: string): Promise<string | null> {
+  return await invoke("extract_album_art", { path }) as string | null;
+}
+
+export type TimelineClip = {
+  media_path: string;
+  start_time: number;
+  end_time: number;
+  offset: number;
+};
+
+export async function generateTimelinePreview(
+  clips: TimelineClip[],
+  outputWidth: number,
+  totalDuration: number
+): Promise<string> {
+  return await invoke("generate_timeline_preview", {
+    clips,
+    outputWidth,
+    totalDuration,
+  }) as string;
+}
+
+export async function generateAdaptiveTimelinePreview(
+  clips: TimelineClip[],
+  playerWidth: number,
+  playerHeight: number,
+  totalDuration: number
+): Promise<string> {
+  return await invoke("generate_adaptive_timeline_preview", {
+    clips,
+    playerWidth,
+    playerHeight,
+    totalDuration,
+  }) as string;
+}
